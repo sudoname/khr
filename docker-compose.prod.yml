@@ -4,7 +4,7 @@
 #   cp .env.prod.example .env   # then fill in secrets
 #   docker compose -f docker-compose.prod.yml up -d --build
 #
-# Nothing is exposed publicly except the web app on 127.0.0.1:3001 — nginx
+# Nothing is exposed publicly except the web app on 127.0.0.1:3004 — nginx
 # terminates TLS for khr.ng and proxies to it. The web app proxies /api/* to
 # the API container internally, so cookies stay first-party.
 name: khr
@@ -102,7 +102,7 @@ services:
       NODE_ENV: production
       API_URL: http://api:4000
     ports:
-      - "127.0.0.1:3001:3000"
+      - "127.0.0.1:3004:3000"
     depends_on:
       - api
 
