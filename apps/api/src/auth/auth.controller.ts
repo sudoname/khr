@@ -50,6 +50,56 @@ export class AuthController {
     return { mfaRequired: false, companies: result.memberships.map((m) => ({ ...m.company, role: m.role })) };
   }
 
+  // ───────────────────────── Google OAuth ─────────────────────────
+
+  private static readonly OAUTH_STATE_COOKIE = 'pf_oauth_state';
+
+  @Public()
+  @Get('providers')
+  providers() {
+    return { google: this.auth.googleEnabled };
+  }
+
+  @Public()
+  @Get('google')
+  googleStart(@Res() res: Response) {
+    const { url, state } = this.auth.googleStart();
+    res.cookie(AuthController.OAUTH_STATE_COOKIE, state, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: config.secureCookies,
+      path: '/',
+      maxAge: 10 * 60 * 1000,
+    });
+    res.redirect(url);
+  }
+
+  @Public()
+  @Get('google/callback')
+  async googleCallback(@Req() req: Request, @Res() res: Response) {
+    const stateCookie = (req.cookies as Record<string, string> | undefined)?.[AuthController.OAUTH_STATE_COOKIE];
+    res.clearCookie(AuthController.OAUTH_STATE_COOKIE, { path: '/' });
+    try {
+      const result = await this.auth.googleCallback(
+        String(req.query.code ?? ''),
+        String(req.query.state ?? ''),
+        stateCookie,
+        req.ip,
+        req.headers['user-agent'],
+      );
+      if (result.kind === 'no_account') {
+        return res.redirect(`${config.webBaseUrl}/register?google=no_account&email=${encodeURIComponent(result.email)}`);
+      }
+      if (result.kind === 'mfa') {
+        return res.redirect(`${config.webBaseUrl}/login?mfaToken=${encodeURIComponent(result.mfaToken)}`);
+      }
+      res.cookie(config.sessionCookieName, result.token, this.sessions.cookieOptions(result.session.expiresAt));
+      return res.redirect(`${config.webBaseUrl}/dashboard`);
+    } catch {
+      return res.redirect(`${config.webBaseUrl}/login?error=google`);
+    }
+  }
+
   @Public()
   @Post('mfa/verify')
   async mfaVerify(

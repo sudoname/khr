@@ -26,4 +26,9 @@ export const config = {
   sessionTtlHours: 24 * 7,
   /** When enabled, privileged roles must enroll MFA before using tenant APIs. */
   enforceMfaForPrivileged: process.env.ENFORCE_MFA_FOR_PRIVILEGED === '1' || isProd,
+  /** Google OAuth sign-in. Disabled unless both values are provided. */
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID ?? '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET ?? '',
+  },
 };

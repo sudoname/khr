@@ -315,6 +315,82 @@ export class AuthService {
     return { message: 'MFA disabled' };
   }
 
+  // ───────────────────────── Google OAuth ─────────────────────────
+
+  get googleEnabled(): boolean {
+    return Boolean(config.google.clientId && config.google.clientSecret);
+  }
+
+  private get googleRedirectUri() {
+    // The API is reached through the web origin's /api proxy, so the public
+    // callback URL is first-party and the session cookie Just Works.
+    return `${config.webBaseUrl}/api/auth/google/callback`;
+  }
+
+  googleStart() {
+    if (!this.googleEnabled) throw new BadRequestException('Google sign-in is not configured');
+    const state = randomBytes(16).toString('base64url');
+    const params = new URLSearchParams({
+      client_id: config.google.clientId,
+      redirect_uri: this.googleRedirectUri,
+      response_type: 'code',
+      scope: 'openid email profile',
+      state,
+      prompt: 'select_account',
+    });
+    return { url: `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`, state };
+  }
+
+  async googleCallback(code: string, state: string, stateCookie: string | undefined, ip?: string, userAgent?: string) {
+    if (!this.googleEnabled) throw new BadRequestException('Google sign-in is not configured');
+    await this.rateLimit.hit(`oauth:ip:${ip ?? 'unknown'}`, 20, 900);
+    if (!code || !state || !stateCookie || state !== stateCookie) {
+      throw new UnauthorizedException('Invalid OAuth state');
+    }
+
+    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        code,
+        client_id: config.google.clientId,
+        client_secret: config.google.clientSecret,
+        redirect_uri: this.googleRedirectUri,
+        grant_type: 'authorization_code',
+      }),
+    });
+    if (!tokenRes.ok) throw new UnauthorizedException('Google token exchange failed');
+    const tokens = (await tokenRes.json()) as { access_token?: string };
+    if (!tokens.access_token) throw new UnauthorizedException('Google token exchange failed');
+
+    const infoRes = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+      headers: { Authorization: `Bearer ${tokens.access_token}` },
+    });
+    const info = (await infoRes.json()) as { email?: string; email_verified?: boolean };
+    if (!infoRes.ok || !info.email || info.email_verified === false) {
+      throw new UnauthorizedException('Google account email is not verified');
+    }
+    const email = info.email.toLowerCase();
+
+    const user = await this.prisma.user.findUnique({ where: { email } });
+    if (!user) {
+      // No local account: send them to registration rather than silently creating
+      // a user with no workspace.
+      return { kind: 'no_account' as const, email };
+    }
+    if (!user.emailVerifiedAt) {
+      // Google asserts ownership of the address, which satisfies verification.
+      await this.prisma.user.update({ where: { id: user.id }, data: { emailVerifiedAt: new Date() } });
+    }
+    if (user.mfaEnabled) {
+      const mfaToken = await this.issueToken(user.id, 'MFA_CHALLENGE', 10);
+      return { kind: 'mfa' as const, mfaToken };
+    }
+    const session = await this.startSession(user.id, ip, userAgent);
+    await this.audit.log('auth.google_login', { userId: user.id, companyId: null });
+    return { kind: 'session' as const, token: session.token, session: session.session };
+  }
+
   // ───────────────────────── invites ─────────────────────────
 
   async acceptInvite(token: string, password: string) {

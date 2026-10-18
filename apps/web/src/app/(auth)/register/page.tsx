@@ -1,12 +1,21 @@
 'use client';
 
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { Alert, Button, Field, Input } from '@/components/ui';
 
-export default function RegisterPage() {
-  const [form, setForm] = useState({ companyName: '', firstName: '', lastName: '', email: '', password: '' });
+function RegisterForm() {
+  const search = useSearchParams();
+  const fromGoogle = search.get('google') === 'no_account';
+  const [form, setForm] = useState({
+    companyName: '',
+    firstName: '',
+    lastName: '',
+    email: search.get('email') ?? '',
+    password: '',
+  });
   const [error, setError] = useState('');
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -45,6 +54,12 @@ export default function RegisterPage() {
   return (
     <form onSubmit={submit} className="space-y-4">
       <h2 className="text-lg font-semibold">Create your company workspace</h2>
+      {fromGoogle && (
+        <Alert kind="info">
+          No workspace is linked to that Google account yet. Create one below — after that you can sign in with
+          Google.
+        </Alert>
+      )}
       {error && <Alert kind="error">{error}</Alert>}
       <Field label="Company name">
         <Input value={form.companyName} onChange={set('companyName')} required autoFocus />
@@ -73,5 +88,13 @@ export default function RegisterPage() {
         </Link>
       </p>
     </form>
+  );
+}
+
+export default function RegisterPage() {
+  return (
+    <Suspense>
+      <RegisterForm />
+    </Suspense>
   );
 }

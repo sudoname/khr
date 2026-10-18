@@ -5,3 +5,36 @@
 body {
   @apply bg-slate-50 text-slate-900 antialiased;
 }
+
+/* ───────── landing page (futuristic, dark) ───────── */
+
+.hud-grid {
+  background-image:
+    linear-gradient(rgba(148, 163, 184, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 163, 184, 0.07) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 90% 70% at 50% 0%, black 35%, transparent 80%);
+}
+
+.hud-glow {
+  background: radial-gradient(ellipse 50% 40% at 50% 0%, rgba(34, 211, 238, 0.14), transparent 70%);
+}
+
+@keyframes scanline {
+  0% { transform: translateY(-100%); }
+  100% { transform: translateY(100vh); }
+}
+
+.hud-scanline {
+  animation: scanline 9s linear infinite;
+  background: linear-gradient(to bottom, transparent, rgba(34, 211, 238, 0.06), transparent);
+}
+
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+
+.hud-blink {
+  animation: blink 1.6s ease-in-out infinite;
+}
