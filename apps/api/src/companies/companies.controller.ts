@@ -17,7 +17,9 @@ import type { Response } from 'express';
 import {
   companyUpdateSchema,
   inviteMemberSchema,
+  planUpdateSchema,
   updateMemberRoleSchema,
+  type BillingPlanValue,
   type CompanyRole,
   type InviteMemberInput,
 } from '@peopleflow/types';
@@ -92,5 +94,11 @@ export class CompaniesController {
   @Get('platform/companies')
   platformCompanies() {
     return this.companies.platformListCompanies();
+  }
+
+  @RequirePlatformAdmin()
+  @Patch('platform/companies/:id/plan')
+  setPlan(@Param('id') id: string, @Body(new ZodPipe(planUpdateSchema)) body: { plan: BillingPlanValue }) {
+    return this.companies.platformSetPlan(id, body.plan);
   }
 }

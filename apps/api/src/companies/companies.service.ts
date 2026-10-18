@@ -1,6 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes, createHash } from 'crypto';
-import type { CompanyRole, CompanySector, InviteMemberInput } from '@peopleflow/types';
+import type { BillingPlanValue, CompanyRole, CompanySector, InviteMemberInput } from '@peopleflow/types';
 import { sniffImageMime } from '../common/image-sniff';
 import { config } from '../config';
 import { AppContext } from '../context/app-context';
@@ -265,8 +265,25 @@ export class CompaniesService {
       slug: c.slug,
       country: c.country,
       sector: c.sector,
+      plan: c.plan,
       createdAt: c.createdAt,
       members: c._count.memberships,
     }));
+  }
+
+  async platformSetPlan(companyId: string, plan: BillingPlanValue) {
+    const company = await this.prisma.company.findUnique({ where: { id: companyId } });
+    if (!company || company.deletedAt) throw new NotFoundException('Company not found');
+    const updated = await this.prisma.company.update({
+      where: { id: companyId },
+      data: { plan, planUpdatedAt: new Date() },
+    });
+    await this.audit.log('platform.plan_changed', {
+      companyId,
+      entity: 'Company',
+      entityId: companyId,
+      meta: { from: company.plan, to: plan },
+    });
+    return { id: updated.id, plan: updated.plan, planUpdatedAt: updated.planUpdatedAt };
   }
 }

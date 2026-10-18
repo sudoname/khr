@@ -8,6 +8,7 @@ import { AuthGuard } from './common/guards/auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { CompaniesModule } from './companies/companies.module';
 import { DepartmentsModule } from './departments/departments.module';
+import { DocumentsModule } from './documents/documents.module';
 import { EmployeesModule } from './employees/employees.module';
 import { HealthModule } from './health/health.module';
 import { InfraModule } from './infra/infra.module';
@@ -15,7 +16,11 @@ import { LeaveModule } from './leave/leave.module';
 import { LocationsModule } from './locations/locations.module';
 import { OrgModule } from './org/org.module';
 import { PayrollModule } from './payroll/payroll.module';
+import { PerformanceModule } from './performance/performance.module';
+import { RecruitmentModule } from './recruitment/recruitment.module';
+import { ReportsModule } from './reports/reports.module';
 import { StatsModule } from './stats/stats.module';
+import { TrainingModule } from './training/training.module';
 
 @Module({
   imports: [
@@ -31,6 +36,11 @@ import { StatsModule } from './stats/stats.module';
     LeaveModule,
     AttendanceModule,
     PayrollModule,
+    RecruitmentModule,
+    DocumentsModule,
+    ReportsModule,
+    PerformanceModule,
+    TrainingModule,
     StatsModule,
     AuditModule,
   ],

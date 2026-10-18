@@ -21,6 +21,11 @@ const NAV: NavItem[] = [
   { href: '/leave', label: 'Leave', permission: 'leave.request.self' },
   { href: '/attendance', label: 'Attendance', permission: 'attendance.clock.self' },
   { href: '/payroll', label: 'Payroll', permission: 'payroll.read.self' },
+  { href: '/recruitment', label: 'Recruitment', permission: 'recruitment.read' },
+  { href: '/performance', label: 'Performance', permission: 'performance.read.self' },
+  { href: '/training', label: 'Training', permission: 'training.read' },
+  { href: '/documents', label: 'Documents', permission: 'document.read.self' },
+  { href: '/reports', label: 'Reports', permission: 'report.read' },
 ];
 
 const SETTINGS_NAV: NavItem[] = [
@@ -104,6 +109,16 @@ function Shell({ children }: { children: React.ReactNode }) {
                   {item.label}
                 </Link>
               ))}
+            </>
+          )}
+          {me.user.isPlatformAdmin && (
+            <>
+              <div className="px-3 pb-1 pt-4 font-mono text-[10px] font-semibold uppercase tracking-[0.2em] text-slate-400">
+                Platform
+              </div>
+              <Link href="/platform" className={linkClass('/platform')}>
+                Companies & plans
+              </Link>
             </>
           )}
         </nav>

@@ -51,6 +51,22 @@ export const PERMISSIONS = [
   'payroll.read.self',   // own payslips
   'payroll.manage',      // settings, create/compute/submit runs, bank schedule
   'payroll.approve',     // approve/reject/mark-paid (separation of duties)
+  // recruitment (ATS)
+  'recruitment.read',
+  'recruitment.manage',  // postings, candidates, pipeline, interviews, offers
+  'recruitment.hire',    // convert an accepted offer into an employee record
+  // documents
+  'document.read.self',  // own documents + company-level documents
+  'document.manage',     // upload/delete/see all documents
+  // reporting
+  'report.read',
+  // performance
+  'performance.read.self',
+  'performance.review',  // write reviews for the reporting chain
+  'performance.manage',  // cycles, all goals/reviews
+  // training
+  'training.read',       // view catalogue, enroll self, update own enrollment
+  'training.manage',     // courses, enroll others, see all enrollments
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -63,6 +79,9 @@ const EMPLOYEE_BASE: Permission[] = [
   'attendance.clock.self',
   'attendance.correct.request',
   'payroll.read.self',
+  'document.read.self',
+  'performance.read.self',
+  'training.read',
 ];
 
 export const ROLE_PERMISSIONS: Record<CompanyRole, Permission[]> = {
@@ -89,6 +108,14 @@ export const ROLE_PERMISSIONS: Record<CompanyRole, Permission[]> = {
     'attendance.read.all',
     'attendance.correct.review',
     'attendance.policy.manage',
+    'recruitment.read',
+    'recruitment.manage',
+    'recruitment.hire',
+    'document.manage',
+    'report.read',
+    'performance.review',
+    'performance.manage',
+    'training.manage',
   ],
   HR_MANAGER: [
     ...EMPLOYEE_BASE,
@@ -100,16 +127,30 @@ export const ROLE_PERMISSIONS: Record<CompanyRole, Permission[]> = {
     'leave.read.all',
     'attendance.read.all',
     'attendance.correct.review',
+    'recruitment.read',
+    'recruitment.manage',
+    'recruitment.hire',
+    'report.read',
+    'performance.review',
+    'performance.manage',
+    'training.manage',
   ],
   DEPT_MANAGER: [
     ...EMPLOYEE_BASE,
     'employee.read.team',
     'leave.approve',
     'attendance.correct.review',
+    'performance.review',
   ],
   EMPLOYEE: [...EMPLOYEE_BASE],
-  RECRUITER: [...EMPLOYEE_BASE],
-  PAYROLL_OFFICER: [...EMPLOYEE_BASE, 'compensation.read', 'employee.export', 'payroll.manage'],
+  RECRUITER: [...EMPLOYEE_BASE, 'recruitment.read', 'recruitment.manage'],
+  PAYROLL_OFFICER: [
+    ...EMPLOYEE_BASE,
+    'compensation.read',
+    'employee.export',
+    'payroll.manage',
+    'report.read',
+  ],
 };
 
 export function roleHas(role: CompanyRole, permission: Permission): boolean {

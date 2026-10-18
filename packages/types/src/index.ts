@@ -8,3 +8,8 @@ export * from './schemas/leave';
 export * from './schemas/attendance';
 export * from './schemas/onboarding';
 export * from './schemas/payroll';
+export * from './schemas/recruitment';
+export * from './schemas/documents';
+export * from './schemas/performance';
+export * from './schemas/training';
+export * from './schemas/billing';
