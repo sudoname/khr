@@ -18,6 +18,11 @@ COPY packages/config ./packages/config
 COPY packages/types ./packages/types
 COPY apps/web ./apps/web
 
+# Next.js bakes rewrites into the routes manifest at build time, so the API
+# host must be known here. Defaults to the compose service name.
+ARG API_URL=http://api:4000
+ENV API_URL=$API_URL
+
 RUN pnpm --filter @peopleflow/web... run build
 
 ENV NODE_ENV=production
