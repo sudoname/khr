@@ -1,6 +1,7 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes, createHash } from 'crypto';
 import type { CompanyRole, InviteMemberInput } from '@peopleflow/types';
+import { sniffImageMime } from '../common/image-sniff';
 import { config } from '../config';
 import { AppContext } from '../context/app-context';
 import { AuditService } from '../infra/audit.service';
@@ -29,19 +30,54 @@ export class CompaniesService {
     country?: string;
     timezone?: string;
     currency?: string;
+    rcNumber?: string;
     termsOfEmployment?: string;
   }) {
-    const { termsOfEmployment, ...rest } = data;
+    const { termsOfEmployment, rcNumber, ...rest } = data;
     const company = await this.prisma.company.update({
       where: { id: this.ctx.companyId },
       data: {
         ...rest,
+        ...(rcNumber !== undefined ? { rcNumber: rcNumber || null } : {}),
         ...(termsOfEmployment !== undefined ? { termsOfEmployment: termsOfEmployment || null } : {}),
       },
     });
     // Terms text can be long — audit the touched fields, not the payload.
     await this.audit.log('company.updated', { entity: 'Company', entityId: company.id, meta: { fields: Object.keys(data) } });
     return company;
+  }
+
+  // ───────────────────────── logo ─────────────────────────
+
+  async uploadLogo(file: Express.Multer.File) {
+    const companyId = this.ctx.companyId;
+    // Content-based validation; the client-supplied mimetype is ignored.
+    const mime = sniffImageMime(file.buffer);
+    if (!mime) throw new BadRequestException('Company logo must be a JPEG, PNG or WebP image');
+
+    await this.prisma.companyLogo.upsert({
+      where: { companyId },
+      create: { companyId, mime, data: file.buffer },
+      update: { mime, data: file.buffer },
+    });
+    const logoUrl = `/api/company/logo?v=${Date.now()}`;
+    await this.prisma.company.update({ where: { id: companyId }, data: { logoUrl } });
+    await this.audit.log('company.logo_updated', { entity: 'Company', entityId: companyId });
+    return { logoUrl };
+  }
+
+  async removeLogo() {
+    const companyId = this.ctx.companyId;
+    await this.prisma.companyLogo.deleteMany({ where: { companyId } });
+    await this.prisma.company.update({ where: { id: companyId }, data: { logoUrl: null } });
+    await this.audit.log('company.logo_removed', { entity: 'Company', entityId: companyId });
+    return { logoUrl: null };
+  }
+
+  async getLogo() {
+    const logo = await this.prisma.companyLogo.findUnique({ where: { companyId: this.ctx.companyId } });
+    if (!logo) throw new NotFoundException('No company logo');
+    return logo;
   }
 
   // ───────────────────────── members ─────────────────────────

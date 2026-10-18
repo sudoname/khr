@@ -12,6 +12,8 @@ import type {
   EmployeeCreateInput,
   EmployeeUpdateInput,
 } from '@peopleflow/types';
+import { csvSafe } from '../common/csv';
+import { sniffImageMime } from '../common/image-sniff';
 import { AppContext } from '../context/app-context';
 import { AuditService } from '../infra/audit.service';
 import { PrismaService } from '../infra/prisma.service';
@@ -223,18 +225,17 @@ export class EmployeesService {
 
   // ─────────────────────────── profile photo ───────────────────────────
 
-  private static readonly AVATAR_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
-
   async uploadAvatar(file: Express.Multer.File) {
     const employeeId = this.ctx.employeeIdOrNull;
     if (!employeeId) throw new NotFoundException('No employee record linked to your membership');
-    if (!EmployeesService.AVATAR_MIMES.has(file.mimetype)) {
-      throw new BadRequestException('Profile photo must be a JPEG, PNG or WebP image');
-    }
+    // Validate by magic bytes, not the client-supplied mimetype, and store the
+    // sniffed type so the served Content-Type always matches the actual bytes.
+    const mime = sniffImageMime(file.buffer);
+    if (!mime) throw new BadRequestException('Profile photo must be a JPEG, PNG or WebP image');
     await this.db.employeeAvatar.upsert({
       where: { employeeId },
-      create: { companyId: this.ctx.companyId, employeeId, mime: file.mimetype, data: file.buffer },
-      update: { mime: file.mimetype, data: file.buffer },
+      create: { companyId: this.ctx.companyId, employeeId, mime, data: file.buffer },
+      update: { mime, data: file.buffer },
     });
     // Cache-busting version so browsers pick up the new photo immediately.
     const photoUrl = `/api/employees/${employeeId}/avatar?v=${Date.now()}`;
@@ -278,9 +279,19 @@ export class EmployeesService {
     }
   }
 
+  /**
+   * Allocates the next employee number via an atomic counter on Company, so
+   * concurrent hires can never be handed the same number (the old count+1
+   * approach raced). The unique constraint + retry in create() stays as a
+   * final backstop.
+   */
   private async nextEmployeeNo(): Promise<string> {
-    const count = await this.db.employee.count();
-    return `EMP-${String(count + 1).padStart(4, '0')}`;
+    const { employeeNoSeq } = await this.prisma.company.update({
+      where: { id: this.ctx.companyId },
+      data: { employeeNoSeq: { increment: 1 } },
+      select: { employeeNoSeq: true },
+    });
+    return `EMP-${String(employeeNoSeq).padStart(4, '0')}`;
   }
 
   private async replaceEmergencyContact(
@@ -670,18 +681,18 @@ export class EmployeesService {
     // Salary/compensation is deliberately excluded from exports.
     return stringify(
       employees.map((e) => ({
-        employeeNo: e.employeeNo,
-        firstName: e.firstName,
-        middleName: e.middleName ?? '',
-        lastName: e.lastName,
-        workEmail: e.workEmail,
-        jobTitle: e.jobTitle,
+        employeeNo: csvSafe(e.employeeNo),
+        firstName: csvSafe(e.firstName),
+        middleName: csvSafe(e.middleName),
+        lastName: csvSafe(e.lastName),
+        workEmail: csvSafe(e.workEmail),
+        jobTitle: csvSafe(e.jobTitle),
         status: e.status,
         employmentType: e.employmentType,
         hireDate: e.hireDate.toISOString().slice(0, 10),
-        department: e.department?.name ?? '',
-        location: e.location?.name ?? '',
-        managerEmail: e.manager?.workEmail ?? '',
+        department: csvSafe(e.department?.name),
+        location: csvSafe(e.location?.name),
+        managerEmail: csvSafe(e.manager?.workEmail),
       })),
       { header: true },
     );

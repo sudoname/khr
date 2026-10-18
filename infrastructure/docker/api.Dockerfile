@@ -25,5 +25,6 @@ RUN pnpm --filter @peopleflow/api... run build
 
 EXPOSE 4000
 
-# Apply pending migrations, then start the API.
-CMD ["sh", "-c", "pnpm --filter @peopleflow/database exec prisma migrate deploy && node apps/api/dist/main.js"]
+# Apply pending migrations (as the owner role when MIGRATE_DATABASE_URL is
+# set — the runtime khr_app role has no DDL rights), then start the API.
+CMD ["sh", "-c", "DATABASE_URL=\"${MIGRATE_DATABASE_URL:-$DATABASE_URL}\" pnpm --filter @peopleflow/database exec prisma migrate deploy && node apps/api/dist/main.js"]

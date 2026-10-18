@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { stringify } from 'csv-stringify/sync';
 import type { PayrollRunCreateInput, PayrollSettingsInput } from '@peopleflow/types';
+import { csvSafe } from '../common/csv';
 import { AppContext } from '../context/app-context';
 import { AuditService } from '../infra/audit.service';
 import { PrismaService } from '../infra/prisma.service';
@@ -167,25 +168,49 @@ export class PayrollService {
       });
     }
 
+    // Totals are summed in integer kobo so float error cannot accumulate
+    // across hundreds of payslips; converted back to naira strings at the end.
+    const kobo = (n: number) => Math.round(n * 100);
+    const naira = (k: number) => (k / 100).toFixed(2);
     const totals = slips.reduce(
       (acc, s) => {
-        acc.totalGross += s.computed.grossMonthly;
-        acc.totalPaye += s.computed.paye;
-        acc.totalPensionEmployee += s.computed.pensionEmployee;
-        acc.totalPensionEmployer += s.computed.pensionEmployer;
-        acc.totalNhf += s.computed.nhf;
-        acc.totalNet += s.computed.netPay;
+        acc.totalGross += kobo(s.computed.grossMonthly);
+        acc.totalPaye += kobo(s.computed.paye);
+        acc.totalPensionEmployee += kobo(s.computed.pensionEmployee);
+        acc.totalPensionEmployer += kobo(s.computed.pensionEmployer);
+        acc.totalNhf += kobo(s.computed.nhf);
+        acc.totalNet += kobo(s.computed.netPay);
         return acc;
       },
       { totalGross: 0, totalPaye: 0, totalPensionEmployee: 0, totalPensionEmployer: 0, totalNhf: 0, totalNet: 0 },
     );
 
-    await this.db.$transaction(async (tx) => {
-      await tx.payslip.deleteMany({ where: { runId } });
+    // Interactive transactions must run on the raw client (the tenant
+    // extension wraps each operation in its own RLS transaction, which cannot
+    // nest). Tenant scoping here is explicit: set_config activates the RLS
+    // policies and every statement filters by companyId.
+    const companyId = this.ctx.companyId;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT set_config('app.company_id', ${companyId}, true)`;
+      // Status-conditioned update doubles as a row lock: a concurrent
+      // submit/approve flips the status first and this recompute aborts.
+      const locked = await tx.payrollRun.updateMany({
+        where: { id: runId, companyId, status: 'DRAFT' },
+        data: {
+          totalGross: naira(totals.totalGross),
+          totalPaye: naira(totals.totalPaye),
+          totalPensionEmployee: naira(totals.totalPensionEmployee),
+          totalPensionEmployer: naira(totals.totalPensionEmployer),
+          totalNhf: naira(totals.totalNhf),
+          totalNet: naira(totals.totalNet),
+        },
+      });
+      if (locked.count === 0) throw new BadRequestException('Only draft runs can be recomputed');
+      await tx.payslip.deleteMany({ where: { runId, companyId } });
       if (slips.length > 0) {
         await tx.payslip.createMany({
           data: slips.map((s) => ({
-            companyId: this.ctx.companyId,
+            companyId,
             runId,
             employeeId: s.employeeId,
             employeeName: s.employeeName,
@@ -206,17 +231,6 @@ export class PayrollService {
           })),
         });
       }
-      await tx.payrollRun.update({
-        where: { id: runId },
-        data: {
-          totalGross: totals.totalGross.toFixed(2),
-          totalPaye: totals.totalPaye.toFixed(2),
-          totalPensionEmployee: totals.totalPensionEmployee.toFixed(2),
-          totalPensionEmployer: totals.totalPensionEmployer.toFixed(2),
-          totalNhf: totals.totalNhf.toFixed(2),
-          totalNet: totals.totalNet.toFixed(2),
-        },
-      });
     });
 
     await this.audit.log('payroll.run_computed', {
@@ -228,19 +242,32 @@ export class PayrollService {
     return { ...result, skipped };
   }
 
+  /**
+   * Atomic state transition: the status precondition lives inside the UPDATE
+   * itself, so two concurrent approvals (or approve-vs-reject) cannot both
+   * succeed — the loser matches zero rows and gets a 400/404.
+   */
   private async transition(
     id: string,
     from: Array<'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'PAID'>,
     data: Record<string, unknown>,
     action: string,
   ) {
-    const run = await this.db.payrollRun.findFirst({ where: { id } });
-    if (!run) throw new NotFoundException('Payroll run not found');
-    if (!from.includes(run.status)) {
+    const result = await this.db.payrollRun.updateMany({
+      where: { id, status: { in: from } },
+      data,
+    });
+    if (result.count === 0) {
+      const run = await this.db.payrollRun.findFirst({ where: { id }, select: { status: true } });
+      if (!run) throw new NotFoundException('Payroll run not found');
       throw new BadRequestException(`Run is ${run.status}; expected ${from.join(' or ')}`);
     }
-    const updated = await this.db.payrollRun.update({ where: { id }, data });
-    await this.audit.log(action, { entity: 'PayrollRun', entityId: id, meta: { year: run.year, month: run.month } });
+    const updated = await this.db.payrollRun.findFirstOrThrow({ where: { id } });
+    await this.audit.log(action, {
+      entity: 'PayrollRun',
+      entityId: id,
+      meta: { year: updated.year, month: updated.month },
+    });
     return updated;
   }
 
@@ -308,10 +335,10 @@ export class PayrollService {
     const period = `${run.year}-${String(run.month).padStart(2, '0')}`;
     const csv = stringify(
       run.payslips.map((p) => ({
-        employeeNo: p.employeeNo,
-        name: p.employeeName,
-        bank: p.bankName ?? '',
-        accountNumber: p.bankAccountNumber ?? '',
+        employeeNo: csvSafe(p.employeeNo),
+        name: csvSafe(p.employeeName),
+        bank: csvSafe(p.bankName),
+        accountNumber: csvSafe(p.bankAccountNumber),
         amount: Number(p.netPay).toFixed(2),
         narration: `Salary ${period}`,
       })),

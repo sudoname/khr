@@ -1,5 +1,19 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Delete,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Res,
+  UploadedFile,
+  UseInterceptors,
+} from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { ApiConsumes, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import {
   companyUpdateSchema,
   inviteMemberSchema,
@@ -25,6 +39,29 @@ export class CompaniesController {
   @Patch('company')
   update(@Body(new ZodPipe(companyUpdateSchema)) body: Record<string, string>) {
     return this.companies.update(body);
+  }
+
+  @RequirePermission('company.manage')
+  @Post('company/logo')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  uploadLogo(@UploadedFile() file?: Express.Multer.File) {
+    if (!file?.buffer?.length) throw new BadRequestException('Upload an image in the "file" field');
+    return this.companies.uploadLogo(file);
+  }
+
+  @RequirePermission('company.manage')
+  @Delete('company/logo')
+  removeLogo() {
+    return this.companies.removeLogo();
+  }
+
+  @Get('company/logo')
+  async logo(@Res() res: Response) {
+    const logo = await this.companies.getLogo();
+    res.setHeader('Content-Type', logo.mime);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(Buffer.from(logo.data));
   }
 
   @RequirePermission('members.manage')

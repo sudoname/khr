@@ -11,8 +11,10 @@ name: khr
 
 services:
   postgres:
-    image: postgres:16-alpine
+    # Pinned minor version: rebuilds must not surprise-upgrade the database.
+    image: postgres:16.15-alpine
     restart: unless-stopped
+    mem_limit: 1g
     environment:
       POSTGRES_USER: peopleflow
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
@@ -28,6 +30,9 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    mem_limit: 256m
+    # AOF persistence so queued jobs (payslip emails etc.) survive a crash.
+    command: ["redis-server", "--appendonly", "yes"]
     volumes:
       - redisdata:/data
     healthcheck:
@@ -42,6 +47,7 @@ services:
   mailhog:
     image: mailhog/mailhog:v1.0.1
     restart: unless-stopped
+    mem_limit: 128m
     ports:
       - "127.0.0.1:8025:8025"
 
@@ -50,10 +56,16 @@ services:
       context: .
       dockerfile: infrastructure/docker/api.Dockerfile
     restart: unless-stopped
+    mem_limit: 768m
     environment:
       NODE_ENV: production
       API_PORT: 4000
-      DATABASE_URL: postgresql://peopleflow:${POSTGRES_PASSWORD}@postgres:5432/peopleflow
+      # Runtime connects as the non-owner `khr_app` role so Postgres RLS
+      # applies (see migration rls_enforcement_and_employee_seq). One-time
+      # setup: ALTER ROLE khr_app PASSWORD '<APP_DB_PASSWORD>';
+      DATABASE_URL: postgresql://khr_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/peopleflow
+      # Migrations keep running as the owner (RLS-exempt, full DDL rights).
+      MIGRATE_DATABASE_URL: postgresql://peopleflow:${POSTGRES_PASSWORD}@postgres:5432/peopleflow
       REDIS_URL: redis://redis:6379
       WEB_ORIGIN: ${WEB_ORIGIN:-https://khr.ng}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
@@ -78,9 +90,10 @@ services:
       context: .
       dockerfile: infrastructure/docker/worker.Dockerfile
     restart: unless-stopped
+    mem_limit: 512m
     environment:
       NODE_ENV: production
-      DATABASE_URL: postgresql://peopleflow:${POSTGRES_PASSWORD}@postgres:5432/peopleflow
+      DATABASE_URL: postgresql://khr_app:${APP_DB_PASSWORD}@postgres:5432/peopleflow
       REDIS_URL: redis://redis:6379
       SMTP_HOST: ${SMTP_HOST:-mailhog}
       SMTP_PORT: ${SMTP_PORT:-1025}
@@ -100,6 +113,7 @@ services:
       args:
         API_URL: http://api:4000
     restart: unless-stopped
+    mem_limit: 1g
     environment:
       NODE_ENV: production
       API_URL: http://api:4000
