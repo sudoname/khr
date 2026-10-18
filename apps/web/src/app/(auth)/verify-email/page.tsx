@@ -39,7 +39,7 @@ function VerifyEmailInner() {
       ) : (
         <Alert kind="error">{message}</Alert>
       )}
-      <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline dark:text-cyan-300">
+      <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline">
         Go to sign in
       </Link>
     </div>

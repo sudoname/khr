@@ -12,6 +12,13 @@ export interface RequestActor {
   role?: CompanyRole;
   employeeId?: string;
   ip?: string;
+  /**
+   * Present when the request arrived on a workspace subdomain
+   * (`x-workspace-slug` header injected by the web middleware). The host pins
+   * the tenant: members get companyId/role for that workspace, non-members get
+   * no tenant context at all.
+   */
+  workspace?: { slug: string; companyId: string | null; name: string | null; member: boolean };
 }
 
 /** Typed facade over the request-scoped CLS store. */

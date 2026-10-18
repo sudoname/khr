@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import { COMPANY_SECTORS, COMPANY_SECTOR_LABELS } from '@peopleflow/types';
 import { api } from '@/lib/api';
-import { Alert, Button, Card, Field, Input, Spinner } from '@/components/ui';
+import { Alert, Button, Card, Field, Input, Select, Spinner } from '@/components/ui';
 
 interface Company {
   id: string;
@@ -11,6 +12,7 @@ interface Company {
   country: string;
   timezone: string;
   currency: string;
+  sector: string | null;
   rcNumber: string | null;
   logoUrl: string | null;
   termsOfEmployment: string | null;
@@ -23,6 +25,7 @@ export default function CompanySettingsPage() {
     country: '',
     timezone: '',
     currency: '',
+    sector: '',
     rcNumber: '',
     termsOfEmployment: '',
   });
@@ -42,6 +45,7 @@ export default function CompanySettingsPage() {
           country: c.country,
           timezone: c.timezone,
           currency: c.currency,
+          sector: c.sector ?? '',
           rcNumber: c.rcNumber ?? '',
           termsOfEmployment: c.termsOfEmployment ?? '',
         });
@@ -59,7 +63,8 @@ export default function CompanySettingsPage() {
     setNotice('');
     setBusy(true);
     try {
-      const updated = await api.patch<Company>('/company', form);
+      const { sector, ...rest } = form;
+      const updated = await api.patch<Company>('/company', sector ? { ...rest, sector } : rest);
       setCompany(updated);
       setNotice('Company settings saved.');
     } catch (err) {
@@ -157,9 +162,23 @@ export default function CompanySettingsPage() {
               <Field label="Company name">
                 <Input value={form.name} onChange={set('name')} required minLength={2} />
               </Field>
-              <Field label="RC number (CAC registration)">
-                <Input value={form.rcNumber} onChange={set('rcNumber')} maxLength={40} placeholder="RC 1234567" />
-              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Sector">
+                  <Select value={form.sector} onChange={(e) => setForm((f) => ({ ...f, sector: e.target.value }))}>
+                    <option value="" disabled>
+                      Select your industry…
+                    </option>
+                    {COMPANY_SECTORS.map((s) => (
+                      <option key={s} value={s}>
+                        {COMPANY_SECTOR_LABELS[s]}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="RC number (CAC registration)">
+                  <Input value={form.rcNumber} onChange={set('rcNumber')} maxLength={40} placeholder="RC 1234567" />
+                </Field>
+              </div>
               <div className="grid grid-cols-3 gap-3">
                 <Field label="Country (ISO-2)">
                   <Input value={form.country} onChange={set('country')} required maxLength={2} placeholder="NG" />

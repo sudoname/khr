@@ -1,10 +1,11 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes, createHash } from 'crypto';
-import type { CompanyRole, InviteMemberInput } from '@peopleflow/types';
+import type { CompanyRole, CompanySector, InviteMemberInput } from '@peopleflow/types';
 import { sniffImageMime } from '../common/image-sniff';
 import { config } from '../config';
 import { AppContext } from '../context/app-context';
 import { AuditService } from '../infra/audit.service';
+import { renderEmail } from '../infra/email-template';
 import { PrismaService } from '../infra/prisma.service';
 import { QueueService } from '../infra/queue.service';
 
@@ -30,6 +31,7 @@ export class CompaniesService {
     country?: string;
     timezone?: string;
     currency?: string;
+    sector?: CompanySector;
     rcNumber?: string;
     termsOfEmployment?: string;
   }) {
@@ -141,6 +143,10 @@ export class CompaniesService {
       }
     });
 
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+      select: { name: true },
+    });
     if (isNewUser) {
       const token = randomBytes(32).toString('base64url');
       await this.prisma.securityToken.create({
@@ -152,17 +158,36 @@ export class CompaniesService {
           expiresAt: new Date(Date.now() + 72 * 3600 * 1000),
         },
       });
+      const inviteUrl = `${config.webBaseUrl}/accept-invite?token=${token}`;
       await this.queue.sendEmail({
         to: user.email,
         subject: 'You have been invited to PeopleFlow HR',
-        text: `You have been invited to join a workspace on PeopleFlow HR as ${input.role}.\n\nActivate your account: ${config.webBaseUrl}/accept-invite?token=${token}\n\nThe link expires in 72 hours.`,
+        text: `You have been invited to join "${company.name}" on PeopleFlow HR as ${input.role}.\n\nActivate your account: ${inviteUrl}\n\nThe link expires in 72 hours.`,
+        html: renderEmail({
+          heading: `Join ${company.name}`,
+          bodyLines: [
+            `You have been invited to join "${company.name}" on PeopleFlow HR as ${input.role}.`,
+            'Set your password to activate your account.',
+          ],
+          button: { label: 'Activate account', url: inviteUrl },
+          footerNote: 'The link expires in 72 hours.',
+        }),
         companyId,
       });
     } else {
+      const signInUrl = `${config.webBaseUrl}/login`;
       await this.queue.sendEmail({
         to: user.email,
         subject: 'You have been added to a PeopleFlow HR workspace',
-        text: `You now have access to an additional workspace on PeopleFlow HR as ${input.role}. Sign in and use the company switcher to access it.`,
+        text: `You now have access to "${company.name}" on PeopleFlow HR as ${input.role}. Sign in and use the company switcher to access it.`,
+        html: renderEmail({
+          heading: `You now have access to ${company.name}`,
+          bodyLines: [
+            `You have been added to "${company.name}" on PeopleFlow HR as ${input.role}.`,
+            'Sign in and use the company switcher to open the workspace.',
+          ],
+          button: { label: 'Open workspace', url: signInUrl },
+        }),
         companyId,
       });
     }
@@ -229,6 +254,7 @@ export class CompaniesService {
       name: c.name,
       slug: c.slug,
       country: c.country,
+      sector: c.sector,
       createdAt: c.createdAt,
       members: c._count.memberships,
     }));

@@ -462,10 +462,27 @@ export class EmployeesService {
   }
 
   async terminate(id: string, input: { terminationDate: string; reason: string }) {
+    const companyId = this.ctx.companyId;
     const existing = await this.db.employee.findFirst({ where: { id, deletedAt: null } });
     if (!existing) throw new NotFoundException('Employee not found');
     if (existing.status === 'TERMINATED') throw new ConflictException('Employee is already terminated');
     if (this.ctx.employeeIdOrNull === id) throw new ForbiddenException('You cannot terminate yourself');
+
+    // If the employee has a login, their workspace membership is revoked as part of
+    // termination. Check the last-admin invariant before touching anything.
+    const membership = existing.userId
+      ? await this.prisma.membership.findUnique({
+          where: { userId_companyId: { userId: existing.userId, companyId } },
+        })
+      : null;
+    if (membership?.role === 'COMPANY_ADMIN') {
+      const admins = await this.prisma.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
+      if (admins <= 1) {
+        throw new BadRequestException(
+          'This employee is the only company administrator. Transfer the admin role before terminating them.',
+        );
+      }
+    }
 
     const terminationDate = toDate(input.terminationDate) as Date;
     const employee = await this.db.employee.update({
@@ -482,7 +499,26 @@ export class EmployeesService {
         createdById: this.ctx.userIdOrNull,
       },
     });
-    await this.audit.log('employee.terminated', { entity: 'Employee', entityId: id, meta: { reason: input.reason } });
+
+    // Revoke access: drop the membership, unlink the login from the employee record and
+    // unpin any live session from this company. Employment history is keyed by employeeId,
+    // so nothing is lost — a rehired employee can simply be invited again.
+    if (membership) {
+      await this.prisma.$transaction([
+        this.prisma.membership.delete({ where: { id: membership.id } }),
+        this.prisma.employee.updateMany({ where: { id, companyId }, data: { userId: null } }),
+        this.prisma.session.updateMany({
+          where: { userId: membership.userId, activeCompanyId: companyId },
+          data: { activeCompanyId: null },
+        }),
+      ]);
+    }
+
+    await this.audit.log('employee.terminated', {
+      entity: 'Employee',
+      entityId: id,
+      meta: { reason: input.reason, accessRevoked: Boolean(membership) },
+    });
     return employee;
   }
 

@@ -1,4 +1,6 @@
 export * from './roles';
+export * from './sectors';
+export * from './reserved-slugs';
 export * from './schemas/auth';
 export * from './schemas/employee';
 export * from './schemas/org';

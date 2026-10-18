@@ -31,6 +31,16 @@ export class AuthController {
     private readonly ctx: AppContext,
   ) {}
 
+  /**
+   * Sets the session cookie. When a cross-subdomain cookie domain is configured,
+   * first clears any stale host-only cookie from before the domain rollout so it
+   * cannot shadow the new one.
+   */
+  private setSessionCookie(res: Response, token: string, expires: Date) {
+    if (config.cookieDomain) res.clearCookie(config.sessionCookieName, { path: '/' });
+    res.cookie(config.sessionCookieName, token, this.sessions.cookieOptions(expires));
+  }
+
   @Public()
   @Post('register')
   register(@Body(new ZodPipe(registerSchema)) body: RegisterInput, @Req() req: Request) {
@@ -46,7 +56,7 @@ export class AuthController {
   ) {
     const result = await this.auth.login(body.email, body.password, req.ip, req.headers['user-agent']);
     if (result.mfaRequired) return { mfaRequired: true, mfaToken: result.mfaToken };
-    res.cookie(config.sessionCookieName, result.token, this.sessions.cookieOptions(result.session.expiresAt));
+    this.setSessionCookie(res, result.token, result.session.expiresAt);
     return { mfaRequired: false, companies: result.memberships.map((m) => ({ ...m.company, role: m.role })) };
   }
 
@@ -70,6 +80,9 @@ export class AuthController {
       secure: config.secureCookies,
       path: '/',
       maxAge: 10 * 60 * 1000,
+      // The flow may start on a workspace subdomain while the Google redirect
+      // URI lands on the apex — the state cookie must span both.
+      ...(config.cookieDomain ? { domain: config.cookieDomain } : {}),
     });
     res.redirect(url);
   }
@@ -79,6 +92,9 @@ export class AuthController {
   async googleCallback(@Req() req: Request, @Res() res: Response) {
     const stateCookie = (req.cookies as Record<string, string> | undefined)?.[AuthController.OAUTH_STATE_COOKIE];
     res.clearCookie(AuthController.OAUTH_STATE_COOKIE, { path: '/' });
+    if (config.cookieDomain) {
+      res.clearCookie(AuthController.OAUTH_STATE_COOKIE, { path: '/', domain: config.cookieDomain });
+    }
     try {
       const result = await this.auth.googleCallback(
         String(req.query.code ?? ''),
@@ -93,7 +109,7 @@ export class AuthController {
       if (result.kind === 'mfa') {
         return res.redirect(`${config.webBaseUrl}/login?mfaToken=${encodeURIComponent(result.mfaToken)}`);
       }
-      res.cookie(config.sessionCookieName, result.token, this.sessions.cookieOptions(result.session.expiresAt));
+      this.setSessionCookie(res, result.token, result.session.expiresAt);
       return res.redirect(`${config.webBaseUrl}/dashboard`);
     } catch {
       return res.redirect(`${config.webBaseUrl}/login?error=google`);
@@ -108,7 +124,7 @@ export class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const result = await this.auth.completeMfaLogin(body.mfaToken, body.code, req.ip, req.headers['user-agent']);
-    res.cookie(config.sessionCookieName, result.token, this.sessions.cookieOptions(result.session.expiresAt));
+    this.setSessionCookie(res, result.token, result.session.expiresAt);
     return { mfaRequired: false, companies: result.memberships.map((m) => ({ ...m.company, role: m.role })) };
   }
 
@@ -118,6 +134,8 @@ export class AuthController {
     const actor = this.ctx.actor;
     await this.sessions.revoke(actor.sessionId, actor.userId);
     res.clearCookie(config.sessionCookieName, this.sessions.cookieOptions());
+    // Also clear any stale host-only cookie from before the domain rollout.
+    if (config.cookieDomain) res.clearCookie(config.sessionCookieName, { path: '/' });
     return { message: 'Signed out' };
   }
 

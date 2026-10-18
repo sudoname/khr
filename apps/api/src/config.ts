@@ -22,6 +22,13 @@ export const config = {
   /** Base URL used in emails for links back to the web app. */
   webBaseUrl: (process.env.WEB_ORIGIN ?? 'http://localhost:3000').split(',')[0].trim(),
   secureCookies: process.env.SECURE_COOKIES === '1' || isProd,
+  /**
+   * Apex domain for per-company workspace subdomains (e.g. "khr.ng").
+   * Unset in local dev — all subdomain behavior is disabled.
+   */
+  baseDomain: process.env.BASE_DOMAIN?.trim() || '',
+  /** Cookie Domain attribute (e.g. ".khr.ng") so sessions span subdomains. */
+  cookieDomain: process.env.COOKIE_DOMAIN?.trim() || '',
   sessionCookieName: 'pf_session',
   sessionTtlHours: 24 * 7,
   /** When enabled, privileged roles must enroll MFA before using tenant APIs. */

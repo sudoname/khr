@@ -1,0 +1,80 @@
+/**
+ * Workspace slug rules for per-company subdomains (`<slug>.khr.ng`).
+ *
+ * DNS-safe: lowercase alphanumeric with inner hyphens, 1–50 chars.
+ */
+export const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/;
+
+/** Subdomains that can never be allocated to a company workspace. */
+export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
+  'www',
+  'api',
+  'app',
+  'apps',
+  'admin',
+  'platform',
+  'mail',
+  'smtp',
+  'imap',
+  'pop',
+  'mx',
+  'webmail',
+  'mailhog',
+  'email',
+  'ns1',
+  'ns2',
+  'dns',
+  'ftp',
+  'sftp',
+  'ssh',
+  'vpn',
+  'cdn',
+  'assets',
+  'static',
+  'img',
+  'images',
+  'files',
+  'docs',
+  'blog',
+  'help',
+  'support',
+  'status',
+  'staging',
+  'dev',
+  'test',
+  'demo',
+  'sandbox',
+  'beta',
+  'internal',
+  'intranet',
+  'monitor',
+  'monitoring',
+  'grafana',
+  'metrics',
+  'logs',
+  'khr',
+  'peopleflow',
+  'login',
+  'register',
+  'signup',
+  'signin',
+  'auth',
+  'account',
+  'accounts',
+  'dashboard',
+  'console',
+  'billing',
+  'payments',
+  'security',
+  'abuse',
+  'postmaster',
+  'hostmaster',
+  'webmaster',
+  'noreply',
+  'no-reply',
+]);
+
+/** True when a slug is syntactically valid AND not reserved. */
+export function isAllocatableSlug(slug: string): boolean {
+  return SLUG_RE.test(slug) && !RESERVED_SLUGS.has(slug);
+}

@@ -41,7 +41,7 @@ function AcceptInviteInner() {
     return (
       <div className="space-y-4">
         <Alert kind="success">Invitation accepted — your account is ready.</Alert>
-        <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline dark:text-cyan-300">
+        <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline">
           Sign in
         </Link>
       </div>
@@ -51,7 +51,7 @@ function AcceptInviteInner() {
   return (
     <form onSubmit={submit} className="space-y-4">
       <h2 className="text-lg font-semibold">Join your team</h2>
-      <p className="text-sm text-slate-500 dark:text-slate-400">Set a password to accept the invitation.</p>
+      <p className="text-sm text-slate-500">Set a password to accept the invitation.</p>
       {error && <Alert kind="error">{error}</Alert>}
       <Field label="Password (min 12 characters)">
         <Input

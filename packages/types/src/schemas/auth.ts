@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { COMPANY_ROLES } from '../roles';
+import { COMPANY_SECTORS } from '../sectors';
 
 export const passwordSchema = z
   .string()
@@ -8,6 +9,7 @@ export const passwordSchema = z
 
 export const registerSchema = z.object({
   companyName: z.string().trim().min(2).max(120),
+  sector: z.enum(COMPANY_SECTORS),
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),
   email: z.string().trim().toLowerCase().email(),

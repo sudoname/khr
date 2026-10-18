@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
+import { QRCodeSVG } from 'qrcode.react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Alert, Badge, Button, Card, Field, Input, Spinner } from '@/components/ui';
@@ -180,14 +181,17 @@ export default function AccountPage() {
           ) : setup ? (
             <form onSubmit={enableMfa} className="space-y-3">
               <p className="text-sm text-slate-600">
-                Add this secret to your authenticator app (Google Authenticator, 1Password, Authy…), then enter the
-                6-digit code to confirm.
+                Scan this QR code with your authenticator app (Google Authenticator, 1Password, Authy…), then enter
+                the 6-digit code to confirm.
               </p>
-              <div className="rounded-lg bg-slate-50 p-3">
-                <div className="text-xs text-slate-500">Secret</div>
-                <code className="break-all text-sm font-semibold">{setup.secret}</code>
-                <div className="mt-2 text-xs text-slate-500">Or use this otpauth URL</div>
-                <code className="break-all text-xs">{setup.otpauthUrl}</code>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
+                <div className="inline-flex shrink-0 rounded-lg border border-slate-200 bg-white p-3">
+                  <QRCodeSVG value={setup.otpauthUrl} size={176} marginSize={1} />
+                </div>
+                <div className="min-w-0 rounded-lg bg-slate-50 p-3">
+                  <div className="text-xs text-slate-500">Can&apos;t scan? Enter this secret manually</div>
+                  <code className="break-all text-sm font-semibold">{setup.secret}</code>
+                </div>
               </div>
               <Field label="Code from your app">
                 <Input value={mfaCode} onChange={(e) => setMfaCode(e.target.value)} required placeholder="123456" autoFocus />

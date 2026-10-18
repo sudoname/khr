@@ -6,7 +6,7 @@ import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { pinoHttp } from 'pino-http';
 import { AppModule } from './app.module';
-import { originCheck } from './common/origin.middleware';
+import { originAllowed, originCheck } from './common/origin.middleware';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -23,7 +23,10 @@ async function bootstrap() {
   app.use(cookieParser());
   app.use(originCheck);
 
-  app.enableCors({ origin: config.webOrigins, credentials: true });
+  app.enableCors({
+    origin: (origin, cb) => cb(null, !origin || originAllowed(origin)),
+    credentials: true,
+  });
   app.enableShutdownHooks();
 
   const swaggerConfig = new DocumentBuilder()

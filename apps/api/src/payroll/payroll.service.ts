@@ -7,8 +7,10 @@ import {
 import { stringify } from 'csv-stringify/sync';
 import type { PayrollRunCreateInput, PayrollSettingsInput } from '@peopleflow/types';
 import { csvSafe } from '../common/csv';
+import { config } from '../config';
 import { AppContext } from '../context/app-context';
 import { AuditService } from '../infra/audit.service';
+import { renderEmail } from '../infra/email-template';
 import { PrismaService } from '../infra/prisma.service';
 import { QueueService } from '../infra/queue.service';
 import { computePayslip, toMonthlyGross, type PayrollComputeSettings } from './nigeria-tax';
@@ -308,6 +310,14 @@ export class PayrollService {
         to: slip.employee.workEmail,
         subject: `Your ${period} payslip is ready`,
         text: `Hi ${slip.employee.firstName},\n\nYour salary for ${period} has been paid and your payslip is now available in KHR under Payroll > My payslips.\n\n— KHR`,
+        html: renderEmail({
+          heading: `Your ${period} payslip is ready`,
+          bodyLines: [
+            `Hi ${slip.employee.firstName},`,
+            `Your salary for ${period} has been paid and your payslip is now available under Payroll > My payslips.`,
+          ],
+          button: { label: 'View payslip', url: `${config.webBaseUrl}/payroll` },
+        }),
         companyId: this.ctx.companyId,
       });
     }

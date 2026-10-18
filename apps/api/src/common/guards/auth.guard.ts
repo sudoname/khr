@@ -8,7 +8,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { createHash } from 'crypto';
 import type { Request } from 'express';
-import { MFA_REQUIRED_ROLES } from '@peopleflow/types';
+import { MFA_REQUIRED_ROLES, SLUG_RE } from '@peopleflow/types';
 import { config } from '../../config';
 import { AppContext, RequestActor } from '../../context/app-context';
 import { PrismaService } from '../../infra/prisma.service';
@@ -53,7 +53,32 @@ export class AuthGuard implements CanActivate {
       ip: req.ip,
     };
 
-    if (session.activeCompanyId) {
+    const workspaceSlug = this.workspaceSlug(req);
+    if (workspaceSlug) {
+      // The request arrived on a workspace subdomain: the host is authoritative
+      // for tenant selection; session.activeCompanyId is ignored here. Pinning
+      // is in-memory only (no session write).
+      const company = await this.prisma.company.findFirst({
+        where: { slug: workspaceSlug, deletedAt: null },
+        select: { id: true, name: true },
+      });
+      if (company) {
+        const membership = await this.prisma.membership.findUnique({
+          where: { userId_companyId: { userId: session.userId, companyId: company.id } },
+        });
+        if (membership) {
+          actor.companyId = membership.companyId;
+          actor.role = membership.role;
+          actor.employeeId = membership.employeeId ?? undefined;
+          actor.workspace = { slug: workspaceSlug, companyId: company.id, name: company.name, member: true };
+        } else {
+          // Non-member: tenant context stays unset so tenant-scoped routes 403.
+          actor.workspace = { slug: workspaceSlug, companyId: company.id, name: company.name, member: false };
+        }
+      } else {
+        actor.workspace = { slug: workspaceSlug, companyId: null, name: null, member: false };
+      }
+    } else if (session.activeCompanyId) {
       // Membership is re-verified on EVERY request; a revoked membership
       // immediately drops tenant access even for live sessions.
       const membership = await this.prisma.membership.findUnique({
@@ -87,5 +112,12 @@ export class AuthGuard implements CanActivate {
     this.ctx.setActor(actor);
     req.actor = actor;
     return true;
+  }
+
+  /** Validated workspace slug from the middleware-injected header, if any. */
+  private workspaceSlug(req: Request): string | null {
+    const raw = req.headers['x-workspace-slug'];
+    const slug = typeof raw === 'string' ? raw.toLowerCase() : '';
+    return slug && SLUG_RE.test(slug) ? slug : null;
   }
 }

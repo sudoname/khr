@@ -92,6 +92,8 @@ model Company {
   timezone  String    @default("Africa/Lagos")
   currency  String    @default("NGN")
   logoUrl   String?
+  /// Industry sector; nullable so pre-existing companies are unaffected.
+  sector    CompanySector?
   /// CAC registration number (e.g. RC 1234567 or BN 1234567).
   rcNumber  String?
   /// Shown to employees during onboarding; acceptance is timestamped on Employee.
@@ -116,6 +118,26 @@ model CompanyLogo {
   mime      String
   data      Bytes
   updatedAt DateTime @updatedAt
+}
+
+enum CompanySector {
+  AGRICULTURE
+  TECHNOLOGY
+  BANKING
+  FINANCE
+  CONSTRUCTION
+  RETAIL
+  HEALTHCARE
+  EDUCATION
+  ENERGY
+  MANUFACTURING
+  TELECOMMUNICATIONS
+  HOSPITALITY
+  TRANSPORT_LOGISTICS
+  MEDIA
+  GOVERNMENT
+  NGO
+  OTHER
 }
 
 enum CompanyRole {

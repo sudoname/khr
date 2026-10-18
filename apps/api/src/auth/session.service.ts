@@ -16,6 +16,7 @@ export class SessionService {
       secure: config.secureCookies,
       path: '/',
       expires,
+      ...(config.cookieDomain ? { domain: config.cookieDomain } : {}),
     };
   }
 

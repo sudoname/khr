@@ -8,10 +8,12 @@ import { createHash, randomBytes } from 'crypto';
 import * as argon2 from 'argon2';
 import { authenticator } from 'otplib';
 import type { RegisterInput } from '@peopleflow/types';
+import { RESERVED_SLUGS } from '@peopleflow/types';
 import { SecurityTokenType } from '@peopleflow/database';
 import { config } from '../config';
 import { AppContext } from '../context/app-context';
 import { AuditService } from '../infra/audit.service';
+import { renderEmail } from '../infra/email-template';
 import { PrismaService } from '../infra/prisma.service';
 import { QueueService } from '../infra/queue.service';
 import { RateLimitService } from '../infra/rate-limit.service';
@@ -80,14 +82,15 @@ export class AuthService {
     const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
     const baseSlug = slugify(input.companyName);
     let slug = baseSlug;
-    for (let i = 0; await this.prisma.company.findUnique({ where: { slug } }); i++) {
+    // Reserved names (www, api, mail, …) collide with infrastructure subdomains.
+    for (let i = 0; RESERVED_SLUGS.has(slug) || (await this.prisma.company.findUnique({ where: { slug } })); i++) {
       slug = `${baseSlug}-${randomBytes(2).toString('hex')}`;
       if (i > 5) throw new BadRequestException('Could not allocate a workspace identifier');
     }
 
     const { user, company } = await this.prisma.$transaction(async (tx) => {
       const company = await tx.company.create({
-        data: { name: input.companyName, slug },
+        data: { name: input.companyName, slug, sector: input.sector },
       });
       const user = await tx.user.create({
         data: {
@@ -104,10 +107,20 @@ export class AuthService {
     });
 
     const token = await this.issueToken(user.id, 'VERIFY_EMAIL', 60 * 24);
+    const verifyUrl = `${config.webBaseUrl}/verify-email?token=${token}`;
     await this.queue.sendEmail({
       to: user.email,
       subject: 'Verify your PeopleFlow HR email',
-      text: `Welcome to PeopleFlow HR, ${user.firstName}.\n\nYour workspace "${company.name}" was created.\nVerify your email: ${config.webBaseUrl}/verify-email?token=${token}\n\nThe link expires in 24 hours.`,
+      text: `Welcome to PeopleFlow HR, ${user.firstName}.\n\nYour workspace "${company.name}" was created.\nVerify your email: ${verifyUrl}\n\nThe link expires in 24 hours.`,
+      html: renderEmail({
+        heading: `Welcome, ${user.firstName}`,
+        bodyLines: [
+          `Your workspace "${company.name}" was created on PeopleFlow HR.`,
+          'Confirm your email address to activate your account.',
+        ],
+        button: { label: 'Verify my email', url: verifyUrl },
+        footerNote: 'The link expires in 24 hours.',
+      }),
     });
     await this.audit.log('auth.register', { companyId: company.id, userId: user.id, entity: 'Company', entityId: company.id });
 
@@ -215,6 +228,14 @@ export class AuthService {
       role: actor.role ?? null,
       employee,
       companies: memberships.map((m) => ({ ...m.company, role: m.role })),
+      workspace: actor.workspace
+        ? {
+            slug: actor.workspace.slug,
+            name: actor.workspace.name,
+            exists: actor.workspace.companyId !== null,
+            member: actor.workspace.member,
+          }
+        : null,
     };
   }
 
@@ -236,10 +257,17 @@ export class AuthService {
     const user = await this.prisma.user.findUnique({ where: { email } });
     if (user) {
       const token = await this.issueToken(user.id, 'PASSWORD_RESET', 60);
+      const resetUrl = `${config.webBaseUrl}/reset-password?token=${token}`;
       await this.queue.sendEmail({
         to: user.email,
         subject: 'Reset your PeopleFlow HR password',
-        text: `Reset your password: ${config.webBaseUrl}/reset-password?token=${token}\n\nThe link expires in 1 hour. If you did not request this, ignore this email.`,
+        text: `Reset your password: ${resetUrl}\n\nThe link expires in 1 hour. If you did not request this, ignore this email.`,
+        html: renderEmail({
+          heading: 'Reset your password',
+          bodyLines: ['We received a request to reset your PeopleFlow HR password.'],
+          button: { label: 'Reset password', url: resetUrl },
+          footerNote: 'The link expires in 1 hour. If you did not request this, ignore this email.',
+        }),
       });
     }
     return { message: 'If that email exists, a reset link has been sent.' };
