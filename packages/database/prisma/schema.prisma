@@ -573,13 +573,17 @@ model PayrollRun {
   totalItf             Decimal @db.Decimal(18, 2) @default(0)
   totalNet             Decimal @db.Decimal(18, 2) @default(0)
 
-  createdById  String?
-  submittedAt  DateTime?
-  approvedById String?
-  approvedAt   DateTime?
-  paidAt       DateTime?
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
+  /// Maker/checker attribution. Segregation of duties is enforced in the
+  /// service: the approver must differ from both creator and submitter.
+  createdById   String?
+  submittedById String?
+  submittedAt   DateTime?
+  approvedById  String?
+  approvedAt    DateTime?
+  paidById      String?
+  paidAt        DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   payslips Payslip[]
 

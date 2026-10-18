@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -367,6 +368,7 @@ export class PayrollService {
     from: Array<'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'PAID'>,
     data: Record<string, unknown>,
     action: string,
+    extraMeta: Record<string, unknown> = {},
   ) {
     const result = await this.db.payrollRun.updateMany({
       where: { id, status: { in: from } },
@@ -381,27 +383,103 @@ export class PayrollService {
     await this.audit.log(action, {
       entity: 'PayrollRun',
       entityId: id,
-      meta: { year: updated.year, month: updated.month },
+      meta: { year: updated.year, month: updated.month, ...extraMeta },
     });
     return updated;
   }
 
+  /**
+   * Segregation of duties (maker–checker): whoever prepared or submitted a
+   * run must not be the one to approve it. Enforced against user ids, not
+   * roles, so a COMPANY_ADMIN holding both payroll permissions still cannot
+   * finalize their own run.
+   */
+  private assertSeparationOfDuties(run: { createdById: string | null; submittedById: string | null }) {
+    const approverId = this.ctx.userIdOrNull;
+    if (approverId && (approverId === run.createdById || approverId === run.submittedById)) {
+      throw new ForbiddenException({
+        message:
+          'Segregation of duties: the user who prepared or submitted a payroll run cannot approve it. Another member with payroll approval permission must review it.',
+        code: 'PAYROLL_SOD_VIOLATION',
+      });
+    }
+  }
+
+  /**
+   * Reconciliation gate: before money moves, re-derive every total from the
+   * stored payslips and require an exact Decimal match with the figures
+   * stamped on the run at compute time. Any drift (manual tampering, partial
+   * writes, code regressions) blocks approval.
+   */
+  private async assertRunReconciles(id: string, run: Record<string, unknown>) {
+    const agg = await this.db.payslip.aggregate({
+      where: { runId: id },
+      _count: true,
+      _sum: {
+        grossMonthly: true,
+        paye: true,
+        pensionEmployee: true,
+        pensionEmployer: true,
+        nhf: true,
+        nhis: true,
+        rentRelief: true,
+        nsitf: true,
+        itf: true,
+        netPay: true,
+      },
+    });
+    if (agg._count === 0) {
+      throw new BadRequestException({
+        message: 'This run has no payslips. Add compensation records and recompute before approval.',
+        code: 'EMPTY_RUN',
+      });
+    }
+    const Z = new Prisma.Decimal(0);
+    const pairs: Array<[string, keyof typeof agg._sum]> = [
+      ['totalGross', 'grossMonthly'],
+      ['totalPaye', 'paye'],
+      ['totalPensionEmployee', 'pensionEmployee'],
+      ['totalPensionEmployer', 'pensionEmployer'],
+      ['totalNhf', 'nhf'],
+      ['totalNhis', 'nhis'],
+      ['totalRentRelief', 'rentRelief'],
+      ['totalNsitf', 'nsitf'],
+      ['totalItf', 'itf'],
+      ['totalNet', 'netPay'],
+    ];
+    const mismatches = pairs
+      .filter(([runField, slipField]) => !(run[runField] as Prisma.Decimal).equals(agg._sum[slipField] ?? Z))
+      .map(([runField]) => runField);
+    if (mismatches.length > 0) {
+      throw new ConflictException({
+        message: `Run totals do not reconcile with the payslips (${mismatches.join(', ')}). Reject the run back to draft and recompute it.`,
+        code: 'RECONCILIATION_MISMATCH',
+      });
+    }
+    return { payslips: agg._count as number };
+  }
+
   async submit(id: string) {
-    return this.transition(id, ['DRAFT'], { status: 'PENDING_APPROVAL', submittedAt: new Date() }, 'payroll.run_submitted');
+    return this.transition(
+      id,
+      ['DRAFT'],
+      { status: 'PENDING_APPROVAL', submittedById: this.ctx.userIdOrNull, submittedAt: new Date() },
+      'payroll.run_submitted',
+    );
   }
 
   async approve(id: string) {
-    const run = await this.db.payrollRun.findFirst({
-      where: { id },
-      select: { year: true, month: true, engineVersion: true },
-    });
+    const run = await this.db.payrollRun.findFirst({ where: { id } });
     if (!run) throw new NotFoundException('Payroll run not found');
+    this.assertSeparationOfDuties(run);
     await this.assertTaxRulesApproved(run);
+    const { payslips } = await this.assertRunReconciles(id, run as unknown as Record<string, unknown>);
     return this.transition(
       id,
       ['PENDING_APPROVAL'],
       { status: 'APPROVED', approvedById: this.ctx.userIdOrNull, approvedAt: new Date() },
       'payroll.run_approved',
+      { payslips, totalNet: run.totalNet.toFixed(2), reconciled: true },
     );
   }
 
@@ -409,8 +487,9 @@ export class PayrollService {
     return this.transition(
       id,
       ['PENDING_APPROVAL'],
-      { status: 'DRAFT', note, submittedAt: null },
+      { status: 'DRAFT', note, submittedById: null, submittedAt: null },
       'payroll.run_rejected',
+      { note },
     );
   }
 
@@ -421,7 +500,12 @@ export class PayrollService {
     });
     if (!run) throw new NotFoundException('Payroll run not found');
     await this.assertTaxRulesApproved(run);
-    const updated = await this.transition(id, ['APPROVED'], { status: 'PAID', paidAt: new Date() }, 'payroll.run_paid');
+    const updated = await this.transition(
+      id,
+      ['APPROVED'],
+      { status: 'PAID', paidById: this.ctx.userIdOrNull, paidAt: new Date() },
+      'payroll.run_paid',
+    );
 
     // Notify employees that their payslip is available.
     const payslips = await this.db.payslip.findMany({
