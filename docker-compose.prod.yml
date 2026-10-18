@@ -68,6 +68,11 @@ services:
       MIGRATE_DATABASE_URL: postgresql://peopleflow:${POSTGRES_PASSWORD}@postgres:5432/peopleflow
       REDIS_URL: redis://redis:6379
       WEB_ORIGIN: ${WEB_ORIGIN:-https://khr.ng}
+      # Per-company workspace subdomains (acme.khr.ng). BASE_DOMAIN allows
+      # subdomain origins/redirects; COOKIE_DOMAIN makes the session cookie
+      # span the apex and all subdomains.
+      BASE_DOMAIN: ${BASE_DOMAIN:-khr.ng}
+      COOKIE_DOMAIN: ${COOKIE_DOMAIN:-.khr.ng}
       SESSION_SECRET: ${SESSION_SECRET:?set SESSION_SECRET in .env}
       SECURE_COOKIES: "1"
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -112,6 +117,7 @@ services:
       dockerfile: infrastructure/docker/web.Dockerfile
       args:
         API_URL: http://api:4000
+        NEXT_PUBLIC_BASE_DOMAIN: ${BASE_DOMAIN:-khr.ng}
     restart: unless-stopped
     mem_limit: 1g
     environment:

@@ -23,6 +23,12 @@ COPY apps/web ./apps/web
 ARG API_URL=http://api:4000
 ENV API_URL=$API_URL
 
+# NEXT_PUBLIC_* vars are inlined into the client bundle at build time. When
+# set (e.g. khr.ng), enables per-company workspace subdomains; empty keeps
+# the single-host behavior (local dev default).
+ARG NEXT_PUBLIC_BASE_DOMAIN=
+ENV NEXT_PUBLIC_BASE_DOMAIN=$NEXT_PUBLIC_BASE_DOMAIN
+
 RUN pnpm --filter @peopleflow/web... run build
 
 ENV NODE_ENV=production

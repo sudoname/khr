@@ -1,10 +1,12 @@
 'use client';
 
+import { useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import type { Permission } from '@peopleflow/types';
 import { api } from '@/lib/api';
 import { SessionProvider, useSession } from '@/lib/session';
+import { BASE_DOMAIN, apexUrl, getCurrentSlug, workspaceUrl } from '@/lib/workspace';
 import { Alert, Spinner } from '@/components/ui';
 
 interface NavItem {
@@ -40,13 +42,34 @@ function Shell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
 
+  // Strict subdomain mode: members on the apex are sent to their workspace
+  // subdomain. Platform admins keep apex access for /platform.
+  const slug = getCurrentSlug();
+  const apexRedirectTarget = (() => {
+    if (!BASE_DOMAIN || slug || !me) return null;
+    if (me.user.isPlatformAdmin && pathname.startsWith('/platform')) return null;
+    const active =
+      me.companies.find((c) => c.id === me.activeCompanyId) ??
+      (me.companies.length === 1 ? me.companies[0] : null);
+    return active ? workspaceUrl(active.slug, pathname) : null;
+  })();
+
+  useEffect(() => {
+    if (apexRedirectTarget) window.location.replace(apexRedirectTarget);
+  }, [apexRedirectTarget]);
+
   if (loading) return <Spinner />;
   if (!me) return <Spinner />; // 401 redirect to /login is in flight
-
-  const visibleNav = NAV.filter((item) => !item.permission || can(item.permission));
-  const visibleSettings = SETTINGS_NAV.filter((item) => !item.permission || can(item.permission));
+  if (apexRedirectTarget) return <Spinner />; // hop to workspace subdomain in flight
 
   async function switchCompany(companyId: string) {
+    if (BASE_DOMAIN) {
+      const target = me?.companies.find((c) => c.id === companyId);
+      if (target) {
+        window.location.href = workspaceUrl(target.slug);
+        return;
+      }
+    }
     await api.post('/auth/switch-company', { companyId });
     await refresh();
     router.replace('/dashboard');
@@ -56,6 +79,37 @@ function Shell({ children }: { children: React.ReactNode }) {
     await api.post('/auth/logout', {});
     router.replace('/login');
   }
+
+  // On a workspace subdomain where the signed-in user is not a member.
+  if (me.workspace && !me.workspace.member) {
+    return (
+      <div className="flex min-h-screen items-center justify-center p-6">
+        <div className="w-full max-w-md space-y-4 rounded-xl border border-slate-200 bg-white p-6 text-center shadow-sm">
+          <h2 className="text-lg font-semibold">No access to this workspace</h2>
+          <p className="text-sm text-slate-500">
+            You are signed in as <span className="font-medium">{me.user.email}</span>, but you are
+            not a member of{' '}
+            <span className="font-mono">
+              {me.workspace.slug}.{BASE_DOMAIN}
+            </span>
+            .
+          </p>
+          <a href={apexUrl('/dashboard')} className="block text-sm text-brand-600 hover:underline">
+            Go to {BASE_DOMAIN}
+          </a>
+          <button
+            onClick={() => void logout()}
+            className="w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm text-slate-600 transition hover:bg-slate-50"
+          >
+            Sign out
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  const visibleNav = NAV.filter((item) => !item.permission || can(item.permission));
+  const visibleSettings = SETTINGS_NAV.filter((item) => !item.permission || can(item.permission));
 
   const linkClass = (href: string) =>
     `block rounded-lg px-3 py-1.5 text-sm transition ${

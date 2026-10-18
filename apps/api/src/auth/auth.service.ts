@@ -8,7 +8,7 @@ import { createHash, randomBytes } from 'crypto';
 import * as argon2 from 'argon2';
 import { authenticator } from 'otplib';
 import type { RegisterInput } from '@peopleflow/types';
-import { RESERVED_SLUGS } from '@peopleflow/types';
+import { RESERVED_SLUGS, SLUG_RE } from '@peopleflow/types';
 import { SecurityTokenType } from '@peopleflow/database';
 import { config } from '../config';
 import { AppContext } from '../context/app-context';
@@ -110,14 +110,18 @@ export class AuthService {
 
     const token = await this.issueToken(user.id, 'VERIFY_EMAIL', 60 * 24);
     const verifyUrl = `${config.webBaseUrl}/verify-email?token=${token}`;
+    const workspaceLine = config.baseDomain
+      ? `Your workspace will live at https://${slug}.${config.baseDomain}`
+      : '';
     await this.queue.sendEmail({
       to: user.email,
       subject: 'Verify your PeopleFlow HR email',
-      text: `Welcome to PeopleFlow HR, ${user.firstName}.\n\nYour workspace "${company.name}" was created.\nVerify your email: ${verifyUrl}\n\nThe link expires in 24 hours.`,
+      text: `Welcome to PeopleFlow HR, ${user.firstName}.\n\nYour workspace "${company.name}" was created.${workspaceLine ? `\n${workspaceLine}` : ''}\nVerify your email: ${verifyUrl}\n\nThe link expires in 24 hours.`,
       html: renderEmail({
         heading: `Welcome, ${user.firstName}`,
         bodyLines: [
           `Your workspace "${company.name}" was created on PeopleFlow HR.`,
+          ...(workspaceLine ? [workspaceLine] : []),
           'Confirm your email address to activate your account.',
         ],
         button: { label: 'Verify my email', url: verifyUrl },
@@ -136,12 +140,17 @@ export class AuthService {
       data: { emailVerifiedAt: new Date() },
     });
     await this.audit.log('auth.email_verified', { userId: row.userId, companyId: null });
-    return { message: 'Email verified. You can sign in now.' };
+    // Lets the verify-email page link straight to the user's workspace subdomain.
+    const membership = await this.prisma.auth(row.userId).membership.findFirst({
+      where: { userId: row.userId },
+      include: { company: { select: { slug: true } } },
+    });
+    return { message: 'Email verified. You can sign in now.', workspaceSlug: membership?.company.slug ?? null };
   }
 
   // ───────────────────────── login / MFA ─────────────────────────
 
-  async login(email: string, password: string, ip?: string, userAgent?: string) {
+  async login(email: string, password: string, ip?: string, userAgent?: string, workspaceSlug?: string) {
     await this.rateLimit.hit(`login:ip:${ip ?? 'unknown'}`, 30, 900);
     await this.rateLimit.hit(`login:email:${email}`, 10, 900);
 
@@ -160,10 +169,10 @@ export class AuthService {
       const mfaToken = await this.issueToken(user.id, 'MFA_CHALLENGE', 10);
       return { mfaRequired: true as const, mfaToken };
     }
-    return this.startSession(user.id, ip, userAgent);
+    return this.startSession(user.id, ip, userAgent, workspaceSlug);
   }
 
-  async completeMfaLogin(mfaToken: string, code: string, ip?: string, userAgent?: string) {
+  async completeMfaLogin(mfaToken: string, code: string, ip?: string, userAgent?: string, workspaceSlug?: string) {
     await this.rateLimit.hit(`mfa:ip:${ip ?? 'unknown'}`, 20, 900);
     const row = await this.consumeToken(mfaToken, 'MFA_CHALLENGE');
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: row.userId } });
@@ -177,7 +186,7 @@ export class AuthService {
         data: { mfaRecoveryCodes: user.mfaRecoveryCodes.filter((c) => c !== sha256(code.replace(/\s+/g, '').toLowerCase())) },
       });
     }
-    return this.startSession(user.id, ip, userAgent);
+    return this.startSession(user.id, ip, userAgent, workspaceSlug);
   }
 
   private checkTotpOrRecovery(secret: string | null, recoveryHashes: string[], code: string): boolean {
@@ -186,12 +195,15 @@ export class AuthService {
     return recoveryHashes.includes(sha256(normalized.toLowerCase()));
   }
 
-  private async startSession(userId: string, ip?: string, userAgent?: string) {
+  private async startSession(userId: string, ip?: string, userAgent?: string, workspaceSlug?: string) {
     const memberships = await this.prisma.auth(userId).membership.findMany({
       where: { userId },
       include: { company: { select: { id: true, name: true, slug: true } } },
     });
-    const activeCompanyId = memberships.length === 1 ? memberships[0].companyId : null;
+    // A login that arrives on a workspace subdomain prefers that membership.
+    const preferred = workspaceSlug ? memberships.find((m) => m.company.slug === workspaceSlug) : undefined;
+    const activeCompanyId =
+      preferred?.companyId ?? (memberships.length === 1 ? memberships[0].companyId : null);
     const { token, session } = await this.sessions.create(userId, { activeCompanyId, ip, userAgent });
     await this.audit.log('auth.login', { userId, companyId: activeCompanyId });
     return { mfaRequired: false as const, token, session, memberships };
@@ -357,9 +369,14 @@ export class AuthService {
     return `${config.webBaseUrl}/api/auth/google/callback`;
   }
 
-  googleStart() {
+  googleStart(workspaceSlug?: string) {
     if (!this.googleEnabled) throw new BadRequestException('Google sign-in is not configured');
-    const state = randomBytes(16).toString('base64url');
+    // The nonce is base64url (never contains "."), so a dot cleanly separates
+    // the optional workspace slug the flow should return to after the apex
+    // callback. The full state round-trips via cookie + query and is compared
+    // with strict equality in googleCallback.
+    const nonce = randomBytes(16).toString('base64url');
+    const state = workspaceSlug && SLUG_RE.test(workspaceSlug) ? `${nonce}.${workspaceSlug}` : nonce;
     const params = new URLSearchParams({
       client_id: config.google.clientId,
       redirect_uri: this.googleRedirectUri,
@@ -377,6 +394,9 @@ export class AuthService {
     if (!code || !state || !stateCookie || state !== stateCookie) {
       throw new UnauthorizedException('Invalid OAuth state');
     }
+    // State may carry the originating workspace slug after the nonce.
+    const stateSlug = state.includes('.') ? state.slice(state.indexOf('.') + 1) : '';
+    const workspaceSlug = SLUG_RE.test(stateSlug) ? stateSlug : undefined;
 
     const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -414,11 +434,19 @@ export class AuthService {
     }
     if (user.mfaEnabled) {
       const mfaToken = await this.issueToken(user.id, 'MFA_CHALLENGE', 10);
-      return { kind: 'mfa' as const, mfaToken };
+      return { kind: 'mfa' as const, mfaToken, workspaceSlug };
     }
-    const session = await this.startSession(user.id, ip, userAgent);
+    const session = await this.startSession(user.id, ip, userAgent, workspaceSlug);
     await this.audit.log('auth.google_login', { userId: user.id, companyId: null });
-    return { kind: 'session' as const, token: session.token, session: session.session };
+    return {
+      kind: 'session' as const,
+      token: session.token,
+      session: session.session,
+      workspaceSlug,
+      workspaceMember: workspaceSlug
+        ? session.memberships.some((m) => m.company.slug === workspaceSlug)
+        : false,
+    };
   }
 
   // ───────────────────────── invites ─────────────────────────

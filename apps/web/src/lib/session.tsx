@@ -25,6 +25,7 @@ export interface Me {
     termsAcceptedAt: string | null;
   } | null;
   companies: { id: string; name: string; slug: string; role: CompanyRole }[];
+  workspace: { slug: string; name: string | null; exists: boolean; member: boolean } | null;
 }
 
 interface SessionState {

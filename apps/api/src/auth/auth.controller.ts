@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, Param, Post, Req, Res } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Post, Query, Req, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import {
@@ -13,6 +13,7 @@ import {
   switchCompanySchema,
   verifyEmailSchema,
   acceptInviteSchema,
+  SLUG_RE,
   type RegisterInput,
 } from '@peopleflow/types';
 import { AllowWithoutMfa, Public } from '../common/decorators';
@@ -41,6 +42,13 @@ export class AuthController {
     res.cookie(config.sessionCookieName, token, this.sessions.cookieOptions(expires));
   }
 
+  /** Validated workspace slug from the middleware-injected header, if any. */
+  private workspaceSlug(req: Request): string | undefined {
+    const raw = req.headers['x-workspace-slug'];
+    const slug = typeof raw === 'string' ? raw.toLowerCase() : '';
+    return slug && SLUG_RE.test(slug) ? slug : undefined;
+  }
+
   @Public()
   @Post('register')
   register(@Body(new ZodPipe(registerSchema)) body: RegisterInput, @Req() req: Request) {
@@ -54,7 +62,13 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.auth.login(body.email, body.password, req.ip, req.headers['user-agent']);
+    const result = await this.auth.login(
+      body.email,
+      body.password,
+      req.ip,
+      req.headers['user-agent'],
+      this.workspaceSlug(req),
+    );
     if (result.mfaRequired) return { mfaRequired: true, mfaToken: result.mfaToken };
     this.setSessionCookie(res, result.token, result.session.expiresAt);
     return { mfaRequired: false, companies: result.memberships.map((m) => ({ ...m.company, role: m.role })) };
@@ -72,8 +86,9 @@ export class AuthController {
 
   @Public()
   @Get('google')
-  googleStart(@Res() res: Response) {
-    const { url, state } = this.auth.googleStart();
+  googleStart(@Query('workspace') workspace: string | undefined, @Res() res: Response) {
+    const slug = typeof workspace === 'string' && SLUG_RE.test(workspace) ? workspace : undefined;
+    const { url, state } = this.auth.googleStart(slug);
     res.cookie(AuthController.OAUTH_STATE_COOKIE, state, {
       httpOnly: true,
       sameSite: 'lax',
@@ -107,10 +122,17 @@ export class AuthController {
         return res.redirect(`${config.webBaseUrl}/register?google=no_account&email=${encodeURIComponent(result.email)}`);
       }
       if (result.kind === 'mfa') {
-        return res.redirect(`${config.webBaseUrl}/login?mfaToken=${encodeURIComponent(result.mfaToken)}`);
+        const ws = result.workspaceSlug ? `&workspace=${encodeURIComponent(result.workspaceSlug)}` : '';
+        return res.redirect(`${config.webBaseUrl}/login?mfaToken=${encodeURIComponent(result.mfaToken)}${ws}`);
       }
       this.setSessionCookie(res, result.token, result.session.expiresAt);
-      return res.redirect(`${config.webBaseUrl}/dashboard`);
+      // Flows that started on a workspace subdomain land back there — but only
+      // for members; non-members stay on the apex dashboard.
+      const target =
+        config.baseDomain && result.workspaceSlug && result.workspaceMember
+          ? `https://${result.workspaceSlug}.${config.baseDomain}/dashboard`
+          : `${config.webBaseUrl}/dashboard`;
+      return res.redirect(target);
     } catch {
       return res.redirect(`${config.webBaseUrl}/login?error=google`);
     }
@@ -123,7 +145,13 @@ export class AuthController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.auth.completeMfaLogin(body.mfaToken, body.code, req.ip, req.headers['user-agent']);
+    const result = await this.auth.completeMfaLogin(
+      body.mfaToken,
+      body.code,
+      req.ip,
+      req.headers['user-agent'],
+      this.workspaceSlug(req),
+    );
     this.setSessionCookie(res, result.token, result.session.expiresAt);
     return { mfaRequired: false, companies: result.memberships.map((m) => ({ ...m.company, role: m.role })) };
   }
