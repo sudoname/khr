@@ -41,7 +41,7 @@ function ResetPasswordInner() {
     return (
       <div className="space-y-4">
         <Alert kind="success">Password updated. All other sessions have been signed out.</Alert>
-        <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline">
+        <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline dark:text-cyan-300">
           Sign in with your new password
         </Link>
       </div>

@@ -44,7 +44,7 @@ function RegisterForm() {
           Almost there — we sent a verification link to <strong>{form.email}</strong>. Click it to activate your
           account. (In local dev, open Mailhog at http://localhost:8025.)
         </Alert>
-        <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline">
+        <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline dark:text-cyan-300">
           Back to sign in
         </Link>
       </div>
@@ -83,7 +83,7 @@ function RegisterForm() {
       </Button>
       <p className="text-center text-xs text-slate-500">
         Already have an account?{' '}
-        <Link href="/login" className="text-brand-600 hover:underline">
+        <Link href="/login" className="text-brand-600 hover:underline dark:text-cyan-300">
           Sign in
         </Link>
       </p>

@@ -31,7 +31,7 @@ export default function ForgotPasswordPage() {
         <Alert kind="success">
           If an account exists for <strong>{email}</strong>, a password reset link has been sent.
         </Alert>
-        <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline">
+        <Link href="/login" className="block text-center text-sm text-brand-600 hover:underline dark:text-cyan-300">
           Back to sign in
         </Link>
       </div>
@@ -48,7 +48,7 @@ export default function ForgotPasswordPage() {
       <Button type="submit" disabled={busy} className="w-full justify-center">
         {busy ? 'Sending…' : 'Send reset link'}
       </Button>
-      <Link href="/login" className="block text-center text-xs text-slate-500 hover:text-brand-600">
+      <Link href="/login" className="block text-center text-xs text-slate-500 hover:text-brand-600 dark:hover:text-cyan-300">
         Back to sign in
       </Link>
     </form>

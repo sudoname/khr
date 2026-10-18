@@ -2,15 +2,17 @@ import type { Config } from 'tailwindcss';
 
 const config: Config = {
   content: ['./src/**/*.{ts,tsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       colors: {
+        // Matches the landing page accent (Tailwind cyan).
         brand: {
-          50: '#eef4ff',
-          100: '#dbe6fe',
-          500: '#3758f9',
-          600: '#2a44d4',
-          700: '#2236ab',
+          50: '#ecfeff',
+          100: '#cffafe',
+          500: '#06b6d4',
+          600: '#0891b2',
+          700: '#0e7490',
         },
       },
     },

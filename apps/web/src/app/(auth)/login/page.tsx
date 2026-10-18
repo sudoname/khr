@@ -92,9 +92,9 @@ function LoginForm() {
       {!mfaToken && googleEnabled && (
         <>
           <div className="flex items-center gap-3 text-[11px] uppercase tracking-wide text-slate-400">
-            <span className="h-px flex-1 bg-slate-200" />
+            <span className="h-px flex-1 bg-slate-200 dark:bg-white/10" />
             or
-            <span className="h-px flex-1 bg-slate-200" />
+            <span className="h-px flex-1 bg-slate-200 dark:bg-white/10" />
           </div>
           <a
             href="/api/auth/google"
@@ -107,10 +107,10 @@ function LoginForm() {
       )}
 
       <div className="flex justify-between text-xs text-slate-500">
-        <Link href="/forgot-password" className="hover:text-brand-600">
+        <Link href="/forgot-password" className="hover:text-brand-600 dark:hover:text-cyan-300">
           Forgot password?
         </Link>
-        <Link href="/register" className="hover:text-brand-600">
+        <Link href="/register" className="hover:text-brand-600 dark:hover:text-cyan-300">
           Create a company
         </Link>
       </div>
