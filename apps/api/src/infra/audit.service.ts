@@ -24,7 +24,11 @@ export class AuditService {
     } = {},
   ) {
     try {
-      await this.prisma.auditLog.create({
+      // Audit-writer scope (RLS policy `audit_insert`, INSERT only). Uses
+      // createMany, not create: `create` emits INSERT ... RETURNING, and the
+      // returned row must pass a SELECT policy — which this scope deliberately
+      // does not have.
+      await this.prisma.auditWriter().auditLog.createMany({
         data: {
           action,
           entity: opts.entity,

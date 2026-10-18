@@ -22,9 +22,11 @@ export class WorkspacesController {
   private async lookup(slug: string, ip?: string) {
     await this.rateLimit.hit(`workspace:${ip ?? 'unknown'}`, 60, 300);
     if (!SLUG_RE.test(slug)) throw new NotFoundException('Workspace not found');
+    // Company itself is not an RLS table; the slug resolves the tenant whose
+    // logo (RLS-protected) is then read through the tenant-scoped client.
     const company = await this.prisma.company.findFirst({
       where: { slug, deletedAt: null },
-      select: { name: true, slug: true, logo: { select: { updatedAt: true } } },
+      select: { id: true, name: true, slug: true },
     });
     if (!company) throw new NotFoundException('Workspace not found');
     return company;
@@ -34,11 +36,15 @@ export class WorkspacesController {
   @Get(':slug')
   async get(@Param('slug') slug: string, @Req() req: Request) {
     const company = await this.lookup(slug, req.ip);
+    const logo = await this.prisma.tenant(company.id).companyLogo.findUnique({
+      where: { companyId: company.id },
+      select: { updatedAt: true },
+    });
     return {
       name: company.name,
       slug: company.slug,
-      hasLogo: !!company.logo,
-      logoVersion: company.logo ? company.logo.updatedAt.getTime() : null,
+      hasLogo: !!logo,
+      logoVersion: logo ? logo.updatedAt.getTime() : null,
     };
   }
 
@@ -46,8 +52,8 @@ export class WorkspacesController {
   @Get(':slug/logo')
   async logo(@Param('slug') slug: string, @Req() req: Request, @Res() res: Response) {
     const company = await this.lookup(slug, req.ip);
-    const logo = await this.prisma.companyLogo.findFirst({
-      where: { company: { slug: company.slug, deletedAt: null } },
+    const logo = await this.prisma.tenant(company.id).companyLogo.findUnique({
+      where: { companyId: company.id },
     });
     if (!logo) throw new NotFoundException('No logo');
     res.setHeader('Content-Type', logo.mime);

@@ -57,16 +57,18 @@ describe('PeopleFlow e2e', () => {
   async function provisionTenant(companyName: string, email: string): Promise<Tenant> {
     await request(server())
       .post('/auth/register')
-      .send({ companyName, firstName: 'E2e', lastName: 'Admin', email, password: PASSWORD })
+      .send({ companyName, sector: 'TECHNOLOGY', firstName: 'E2e', lastName: 'Admin', email, password: PASSWORD })
       .expect(201);
     // Email delivery is out of scope here; verify directly in the database.
-    await prisma.user.update({ where: { email }, data: { emailVerifiedAt: new Date() } });
+    const user = await prisma.user.update({ where: { email }, data: { emailVerifiedAt: new Date() } });
 
     const login = await request(server()).post('/auth/login').send({ email, password: PASSWORD });
     expect(login.status).toBe(201);
     const cookie = sessionCookie(login);
 
-    const membership = await prisma.membership.findFirst({ where: { user: { email } } });
+    // Auth-scoped read so the lookup also works when the suite connects with
+    // the production khr_app credentials (fail-closed RLS).
+    const membership = await prisma.auth(user.id).membership.findFirst({ where: { userId: user.id } });
     if (!membership) throw new Error(`No membership created for ${email}`);
     return {
       email,
@@ -214,12 +216,13 @@ describe('PeopleFlow e2e', () => {
 
     beforeAll(async () => {
       // Link each admin's membership to their company's employee record so
-      // self-service endpoints resolve an employee for the session.
-      await prisma.membership.update({
+      // self-service endpoints resolve an employee for the session. Tenant-
+      // scoped so the fixture also works under fail-closed RLS (khr_app).
+      await prisma.tenant(a.companyId).membership.update({
         where: { id: a.membershipId },
         data: { employeeId: empA.id },
       });
-      await prisma.membership.update({
+      await prisma.tenant(b.companyId).membership.update({
         where: { id: b.membershipId },
         data: { employeeId: empB.id },
       });

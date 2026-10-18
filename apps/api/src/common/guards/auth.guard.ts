@@ -63,7 +63,8 @@ export class AuthGuard implements CanActivate {
         select: { id: true, name: true },
       });
       if (company) {
-        const membership = await this.prisma.membership.findUnique({
+        // Auth-scoped read: RLS only exposes the user's own membership rows.
+        const membership = await this.prisma.auth(session.userId).membership.findUnique({
           where: { userId_companyId: { userId: session.userId, companyId: company.id } },
         });
         if (membership) {
@@ -80,8 +81,9 @@ export class AuthGuard implements CanActivate {
       }
     } else if (session.activeCompanyId) {
       // Membership is re-verified on EVERY request; a revoked membership
-      // immediately drops tenant access even for live sessions.
-      const membership = await this.prisma.membership.findUnique({
+      // immediately drops tenant access even for live sessions. Auth-scoped
+      // read: RLS only exposes the user's own membership rows.
+      const membership = await this.prisma.auth(session.userId).membership.findUnique({
         where: { userId_companyId: { userId: session.userId, companyId: session.activeCompanyId } },
       });
       if (membership) {

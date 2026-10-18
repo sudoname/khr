@@ -92,6 +92,8 @@ export class AuthService {
       const company = await tx.company.create({
         data: { name: input.companyName, slug, sector: input.sector },
       });
+      // Fail-closed RLS: the membership insert below needs the tenant GUC.
+      await tx.$executeRaw`SELECT set_config('app.company_id', ${company.id}, TRUE)`;
       const user = await tx.user.create({
         data: {
           email: input.email,
@@ -185,7 +187,7 @@ export class AuthService {
   }
 
   private async startSession(userId: string, ip?: string, userAgent?: string) {
-    const memberships = await this.prisma.membership.findMany({
+    const memberships = await this.prisma.auth(userId).membership.findMany({
       where: { userId },
       include: { company: { select: { id: true, name: true, slug: true } } },
     });
@@ -203,7 +205,7 @@ export class AuthService {
       where: { id: actor.userId },
       select: { id: true, email: true, firstName: true, lastName: true, mfaEnabled: true, isPlatformAdmin: true },
     });
-    const memberships = await this.prisma.membership.findMany({
+    const memberships = await this.prisma.auth(actor.userId).membership.findMany({
       where: { userId: actor.userId },
       include: { company: { select: { id: true, name: true, slug: true } } },
     });
@@ -241,7 +243,7 @@ export class AuthService {
 
   async switchCompany(companyId: string) {
     const actor = this.ctx.actor;
-    const membership = await this.prisma.membership.findUnique({
+    const membership = await this.prisma.auth(actor.userId).membership.findUnique({
       where: { userId_companyId: { userId: actor.userId, companyId } },
     });
     if (!membership) throw new ForbiddenException('You are not a member of that company');

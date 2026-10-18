@@ -118,3 +118,63 @@ export function tenantClient(prisma: PrismaClient, companyId: string) {
 }
 
 export type TenantClient = ReturnType<typeof tenantClient>;
+
+/**
+ * Wraps every operation in a transaction that sets the given GUCs, activating
+ * the corresponding RLS policies. Unlike `tenantClient` it performs no
+ * argument rewriting — access is bounded purely by the database policies the
+ * scope unlocks, so each scope must stay as narrow as its policies.
+ */
+function scopeClient(prisma: PrismaClient, name: string, gucs: ReadonlyArray<readonly [string, string]>) {
+  const assignments = Prisma.join(gucs.map(([k, v]) => Prisma.sql`set_config(${k}, ${v}, TRUE)`));
+  return prisma.$extends({
+    name,
+    query: {
+      $allModels: {
+        async $allOperations({ args, query }) {
+          const [, result] = await prisma.$transaction([
+            prisma.$executeRaw(Prisma.sql`SELECT ${assignments}`),
+            query(args) as unknown as Prisma.PrismaPromise<unknown>,
+          ]);
+          return result;
+        },
+      },
+    },
+  });
+}
+
+/**
+ * Authentication scope: lets pre-tenant auth flows (session guard, login,
+ * company switcher) read ONLY the given user's own Membership rows.
+ * Policy: `auth_member_read` on "Membership" — SELECT only, bound to
+ * `app.user_id`. No other tenant table is visible in this scope.
+ */
+export function authClient(prisma: PrismaClient, userId: string) {
+  if (!userId) throw new Error('authClient requires a userId');
+  return scopeClient(prisma, `auth:${userId}`, [
+    ['app.scope', 'auth'],
+    ['app.user_id', userId],
+  ]);
+}
+
+/**
+ * Audit-writer scope: allows INSERTs into "AuditLog" regardless of tenant
+ * context (auth events carry a null or not-yet-active companyId). Reads are
+ * NOT granted — audit reads stay tenant- or platform-scoped.
+ */
+export function auditClient(prisma: PrismaClient) {
+  return scopeClient(prisma, 'audit', [['app.scope', 'audit']]);
+}
+
+/**
+ * Platform-administrator scope: read-only visibility across all tenants
+ * (policy `platform_read`, SELECT only). Callers MUST gate this behind the
+ * platform-admin authorization check and audit every use.
+ */
+export function platformClient(prisma: PrismaClient) {
+  return scopeClient(prisma, 'platform', [['app.scope', 'platform']]);
+}
+
+export type AuthClient = ReturnType<typeof authClient>;
+export type AuditClient = ReturnType<typeof auditClient>;
+export type PlatformClient = ReturnType<typeof platformClient>;

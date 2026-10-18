@@ -57,7 +57,7 @@ export class CompaniesService {
     const mime = sniffImageMime(file.buffer);
     if (!mime) throw new BadRequestException('Company logo must be a JPEG, PNG or WebP image');
 
-    await this.prisma.companyLogo.upsert({
+    await this.prisma.tenant(companyId).companyLogo.upsert({
       where: { companyId },
       create: { companyId, mime, data: file.buffer },
       update: { mime, data: file.buffer },
@@ -70,14 +70,16 @@ export class CompaniesService {
 
   async removeLogo() {
     const companyId = this.ctx.companyId;
-    await this.prisma.companyLogo.deleteMany({ where: { companyId } });
+    await this.prisma.tenant(companyId).companyLogo.deleteMany({ where: { companyId } });
     await this.prisma.company.update({ where: { id: companyId }, data: { logoUrl: null } });
     await this.audit.log('company.logo_removed', { entity: 'Company', entityId: companyId });
     return { logoUrl: null };
   }
 
   async getLogo() {
-    const logo = await this.prisma.companyLogo.findUnique({ where: { companyId: this.ctx.companyId } });
+    const logo = await this.prisma
+      .tenant(this.ctx.companyId)
+      .companyLogo.findUnique({ where: { companyId: this.ctx.companyId } });
     if (!logo) throw new NotFoundException('No company logo');
     return logo;
   }
@@ -85,7 +87,7 @@ export class CompaniesService {
   // ───────────────────────── members ─────────────────────────
 
   async listMembers() {
-    const members = await this.prisma.membership.findMany({
+    const members = await this.prisma.tenant(this.ctx.companyId).membership.findMany({
       where: { companyId: this.ctx.companyId },
       include: {
         user: { select: { id: true, email: true, firstName: true, lastName: true, emailVerifiedAt: true, mfaEnabled: true } },
@@ -129,12 +131,14 @@ export class CompaniesService {
       });
     }
 
-    const existing = await this.prisma.membership.findUnique({
+    const existing = await this.prisma.tenant(companyId).membership.findUnique({
       where: { userId_companyId: { userId: user.id, companyId } },
     });
     if (existing) throw new BadRequestException('This user is already a member of the company');
 
     await this.prisma.$transaction(async (tx) => {
+      // Fail-closed RLS: multi-statement transaction needs the tenant GUC.
+      await tx.$executeRaw`SELECT set_config('app.company_id', ${companyId}, TRUE)`;
       await tx.membership.create({
         data: { userId: user!.id, companyId, role: input.role, employeeId },
       });
@@ -198,16 +202,17 @@ export class CompaniesService {
 
   async updateRole(membershipId: string, role: CompanyRole) {
     const companyId = this.ctx.companyId;
-    const membership = await this.prisma.membership.findFirst({ where: { id: membershipId, companyId } });
+    const db = this.prisma.tenant(companyId);
+    const membership = await db.membership.findFirst({ where: { id: membershipId, companyId } });
     if (!membership) throw new NotFoundException('Member not found');
     if (membership.userId === this.ctx.userId) {
       throw new ForbiddenException('You cannot change your own role');
     }
     if (membership.role === 'COMPANY_ADMIN' && role !== 'COMPANY_ADMIN') {
-      const admins = await this.prisma.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
+      const admins = await db.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
       if (admins <= 1) throw new BadRequestException('A company must keep at least one administrator');
     }
-    const updated = await this.prisma.membership.update({ where: { id: membership.id }, data: { role } });
+    const updated = await db.membership.update({ where: { id: membership.id }, data: { role } });
     await this.audit.log('member.role_changed', {
       entity: 'Membership',
       entityId: membership.id,
@@ -218,14 +223,17 @@ export class CompaniesService {
 
   async removeMember(membershipId: string) {
     const companyId = this.ctx.companyId;
-    const membership = await this.prisma.membership.findFirst({ where: { id: membershipId, companyId } });
+    const db = this.prisma.tenant(companyId);
+    const membership = await db.membership.findFirst({ where: { id: membershipId, companyId } });
     if (!membership) throw new NotFoundException('Member not found');
     if (membership.userId === this.ctx.userId) throw new ForbiddenException('You cannot remove yourself');
     if (membership.role === 'COMPANY_ADMIN') {
-      const admins = await this.prisma.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
+      const admins = await db.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
       if (admins <= 1) throw new BadRequestException('A company must keep at least one administrator');
     }
     await this.prisma.$transaction(async (tx) => {
+      // Fail-closed RLS: multi-statement transaction needs the tenant GUC.
+      await tx.$executeRaw`SELECT set_config('app.company_id', ${companyId}, TRUE)`;
       if (membership.employeeId) {
         await tx.employee.updateMany({ where: { id: membership.employeeId, companyId }, data: { userId: null } });
       }
@@ -243,7 +251,9 @@ export class CompaniesService {
   // ───────────────────────── platform admin ─────────────────────────
 
   async platformListCompanies() {
-    const companies = await this.prisma.company.findMany({
+    // Platform scope: the membership _count aggregates an RLS table across
+    // tenants; the caller is gated by the platform-admin guard.
+    const companies = await this.prisma.platform().company.findMany({
       where: { deletedAt: null },
       orderBy: { createdAt: 'desc' },
       include: { _count: { select: { memberships: true } } },

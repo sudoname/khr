@@ -476,12 +476,12 @@ export class EmployeesService {
     // If the employee has a login, their workspace membership is revoked as part of
     // termination. Check the last-admin invariant before touching anything.
     const membership = existing.userId
-      ? await this.prisma.membership.findUnique({
+      ? await this.db.membership.findUnique({
           where: { userId_companyId: { userId: existing.userId, companyId } },
         })
       : null;
     if (membership?.role === 'COMPANY_ADMIN') {
-      const admins = await this.prisma.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
+      const admins = await this.db.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
       if (admins <= 1) {
         throw new BadRequestException(
           'This employee is the only company administrator. Transfer the admin role before terminating them.',
@@ -510,6 +510,8 @@ export class EmployeesService {
     // so nothing is lost — a rehired employee can simply be invited again.
     if (membership) {
       await this.prisma.$transaction([
+        // Fail-closed RLS: multi-statement transaction needs the tenant GUC.
+        this.prisma.$executeRaw`SELECT set_config('app.company_id', ${companyId}, TRUE)`,
         this.prisma.membership.delete({ where: { id: membership.id } }),
         this.prisma.employee.updateMany({ where: { id, companyId }, data: { userId: null } }),
         this.prisma.session.updateMany({

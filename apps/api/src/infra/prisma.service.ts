@@ -1,5 +1,15 @@
 import { Injectable, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import { PrismaClient, tenantClient, TenantClient } from '@peopleflow/database';
+import {
+  AuditClient,
+  AuthClient,
+  PlatformClient,
+  PrismaClient,
+  TenantClient,
+  auditClient,
+  authClient,
+  platformClient,
+  tenantClient,
+} from '@peopleflow/database';
 
 @Injectable()
 export class PrismaService extends PrismaClient implements OnModuleInit, OnModuleDestroy {
@@ -17,5 +27,26 @@ export class PrismaService extends PrismaClient implements OnModuleInit, OnModul
    */
   tenant(companyId: string): TenantClient {
     return tenantClient(this, companyId);
+  }
+
+  /**
+   * Auth-scoped client for pre-tenant flows (session guard, login, company
+   * switcher): may read ONLY the given user's own Membership rows.
+   */
+  auth(userId: string): AuthClient {
+    return authClient(this, userId);
+  }
+
+  /** Audit-writer scope: INSERT into AuditLog only, no reads. */
+  auditWriter(): AuditClient {
+    return auditClient(this);
+  }
+
+  /**
+   * Platform-admin scope: read-only, cross-tenant. Callers MUST be gated by
+   * the platform-admin authorization check and audit every use.
+   */
+  platform(): PlatformClient {
+    return platformClient(this);
   }
 }
