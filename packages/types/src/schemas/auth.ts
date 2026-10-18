@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { COMPANY_ROLES } from '../roles';
 import { COMPANY_SECTORS } from '../sectors';
+import { SLUG_RE } from '../reserved-slugs';
 
 export const passwordSchema = z
   .string()
@@ -9,6 +10,14 @@ export const passwordSchema = z
 
 export const registerSchema = z.object({
   companyName: z.string().trim().min(2).max(120),
+  // Chosen workspace address (<slug>.khr.ng). Optional: derived from the
+  // company name when omitted.
+  slug: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .regex(SLUG_RE, 'Use lowercase letters, numbers and hyphens (max 50 characters)')
+    .optional(),
   sector: z.enum(COMPANY_SECTORS),
   firstName: z.string().trim().min(1).max(80),
   lastName: z.string().trim().min(1).max(80),

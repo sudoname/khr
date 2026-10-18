@@ -122,6 +122,51 @@ describe('PeopleFlow e2e', () => {
     redis.disconnect();
   });
 
+  // ───────────────────────── workspace slug selection ─────────────────────────
+
+  describe('workspace slug selection', () => {
+    const slug = `e2e-slug-${STAMP}`;
+    const base = {
+      sector: 'TECHNOLOGY',
+      firstName: 'E2e',
+      lastName: 'Admin',
+      password: PASSWORD,
+    };
+    const email = `admin.slug.${STAMP}@example.test`;
+
+    afterAll(async () => {
+      await prisma.company.deleteMany({ where: { slug } });
+      await prisma.user.deleteMany({ where: { email } });
+    });
+
+    it('creates the company under the chosen slug', async () => {
+      await request(server())
+        .post('/auth/register')
+        .send({ ...base, companyName: 'Slug Co E2E', slug, email })
+        .expect(201);
+      const company = await prisma.company.findUnique({ where: { slug } });
+      expect(company?.name).toBe('Slug Co E2E');
+    });
+
+    it('rejects a taken slug with SLUG_TAKEN', async () => {
+      const res = await request(server())
+        .post('/auth/register')
+        .send({ ...base, companyName: 'Other Co', slug, email: `dup.${email}` });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('SLUG_TAKEN');
+      // The duplicate attempt must not have created a user.
+      expect(await prisma.user.findUnique({ where: { email: `dup.${email}` } })).toBeNull();
+    });
+
+    it('rejects reserved slugs', async () => {
+      const res = await request(server())
+        .post('/auth/register')
+        .send({ ...base, companyName: 'Www Co', slug: 'www', email: `www.${email}` });
+      expect(res.status).toBe(409);
+      expect(res.body.code).toBe('SLUG_TAKEN');
+    });
+  });
+
   // ───────────────────────── tenant isolation ─────────────────────────
 
   describe('tenant isolation', () => {

@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   UnauthorizedException,
@@ -8,7 +9,7 @@ import { createHash, randomBytes } from 'crypto';
 import * as argon2 from 'argon2';
 import { authenticator } from 'otplib';
 import type { RegisterInput } from '@peopleflow/types';
-import { RESERVED_SLUGS, SLUG_RE } from '@peopleflow/types';
+import { RESERVED_SLUGS, SLUG_RE, isAllocatableSlug } from '@peopleflow/types';
 import { SecurityTokenType } from '@peopleflow/database';
 import { config } from '../config';
 import { AppContext } from '../context/app-context';
@@ -73,6 +74,17 @@ export class AuthService {
   async register(input: RegisterInput, ip?: string) {
     await this.rateLimit.hit(`register:${ip ?? 'unknown'}`, 10, 3600);
 
+    // Slug availability is public knowledge (GET /workspaces/:slug), so these
+    // checks may throw before the email-enumeration-safe section below.
+    if (input.slug) {
+      if (!isAllocatableSlug(input.slug)) {
+        throw new ConflictException({ message: `"${input.slug}" is not available — choose a different name.`, code: 'SLUG_TAKEN' });
+      }
+      if (await this.prisma.company.findUnique({ where: { slug: input.slug } })) {
+        throw new ConflictException({ message: `"${input.slug}" is already in use — choose a different name.`, code: 'SLUG_TAKEN' });
+      }
+    }
+
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
     if (existing) {
       // Do not reveal registration state to the caller.
@@ -80,18 +92,26 @@ export class AuthService {
     }
 
     const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
-    const baseSlug = slugify(input.companyName);
-    let slug = baseSlug;
-    // Reserved names (www, api, mail, …) collide with infrastructure subdomains.
-    for (let i = 0; RESERVED_SLUGS.has(slug) || (await this.prisma.company.findUnique({ where: { slug } })); i++) {
-      slug = `${baseSlug}-${randomBytes(2).toString('hex')}`;
-      if (i > 5) throw new BadRequestException('Could not allocate a workspace identifier');
+    let slug = input.slug ?? slugify(input.companyName);
+    if (!input.slug) {
+      const baseSlug = slug;
+      // Reserved names (www, api, mail, …) collide with infrastructure subdomains.
+      for (let i = 0; RESERVED_SLUGS.has(slug) || (await this.prisma.company.findUnique({ where: { slug } })); i++) {
+        slug = `${baseSlug}-${randomBytes(2).toString('hex')}`;
+        if (i > 5) throw new BadRequestException('Could not allocate a workspace identifier');
+      }
     }
 
     const { user, company } = await this.prisma.$transaction(async (tx) => {
-      const company = await tx.company.create({
-        data: { name: input.companyName, slug, sector: input.sector },
-      });
+      const company = await tx.company
+        .create({ data: { name: input.companyName, slug, sector: input.sector } })
+        .catch((err: unknown) => {
+          // Unique-violation race between the availability check and create.
+          if ((err as { code?: string }).code === 'P2002') {
+            throw new ConflictException({ message: `"${slug}" is already in use — choose a different name.`, code: 'SLUG_TAKEN' });
+          }
+          throw err;
+        });
       // Fail-closed RLS: the membership insert below needs the tenant GUC.
       await tx.$executeRaw`SELECT set_config('app.company_id', ${company.id}, TRUE)`;
       const user = await tx.user.create({
