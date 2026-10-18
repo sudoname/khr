@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  DATABASE_URL: postgresql://peopleflow:peopleflow@localhost:5432/peopleflow
+  REDIS_URL: redis://localhost:6379
+  WEB_ORIGIN: http://localhost:3000
+  SMTP_HOST: localhost
+  SMTP_PORT: "1025"
+
+jobs:
+  ci:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: peopleflow
+          POSTGRES_PASSWORD: peopleflow
+          POSTGRES_DB: peopleflow
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U peopleflow"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # version is read from "packageManager" in package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Generate Prisma client
+        run: pnpm db:generate
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Apply migrations
+        run: pnpm --filter @peopleflow/database exec prisma migrate deploy
+
+      - name: E2E tests (tenant isolation + onboarding)
+        run: pnpm test:e2e
+
+      - name: Build all apps
+        run: pnpm build

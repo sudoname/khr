@@ -1,0 +1,503 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────── Identity ───────────────────────────────
+
+model User {
+  id               String    @id @default(cuid())
+  email            String    @unique
+  passwordHash     String
+  firstName        String
+  lastName         String
+  emailVerifiedAt  DateTime?
+  isPlatformAdmin  Boolean   @default(false)
+  mfaEnabled       Boolean   @default(false)
+  mfaSecret        String?
+  mfaRecoveryCodes String[]  @default([])
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  memberships Membership[]
+  sessions    Session[]
+  tokens      SecurityToken[]
+  auditLogs   AuditLog[]
+}
+
+model Session {
+  id              String    @id @default(cuid())
+  tokenHash       String    @unique
+  userId          String
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeCompanyId String?
+  ip              String?
+  userAgent       String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  revokedAt       DateTime?
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+enum SecurityTokenType {
+  VERIFY_EMAIL
+  PASSWORD_RESET
+  INVITE
+  MFA_CHALLENGE
+}
+
+model SecurityToken {
+  id        String            @id @default(cuid())
+  type      SecurityTokenType
+  tokenHash String            @unique
+  userId    String
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  meta      Json?
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime          @default(now())
+
+  @@index([userId, type])
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  companyId String?
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  entity    String?
+  entityId  String?
+  meta      Json?
+  ip        String?
+  createdAt DateTime @default(now())
+
+  @@index([companyId, createdAt])
+  @@index([userId, createdAt])
+}
+
+// ─────────────────────────────── Tenancy ───────────────────────────────
+
+model Company {
+  id        String    @id @default(cuid())
+  name      String
+  slug      String    @unique
+  country   String    @default("NG")
+  timezone  String    @default("Africa/Lagos")
+  currency  String    @default("NGN")
+  logoUrl   String?
+  /// Shown to employees during onboarding; acceptance is timestamped on Employee.
+  termsOfEmployment String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
+
+  memberships Membership[]
+}
+
+enum CompanyRole {
+  COMPANY_ADMIN
+  HR_ADMIN
+  HR_MANAGER
+  DEPT_MANAGER
+  EMPLOYEE
+  RECRUITER
+  PAYROLL_OFFICER
+}
+
+model Membership {
+  id         String      @id @default(cuid())
+  userId     String
+  user       User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  companyId  String
+  company    Company     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  role       CompanyRole
+  employeeId String?     @unique
+  employee   Employee?   @relation(fields: [employeeId], references: [id], onDelete: SetNull)
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([userId, companyId])
+  @@index([companyId])
+}
+
+model Location {
+  id           String    @id @default(cuid())
+  companyId    String
+  name         String
+  addressLine1 String?
+  city         String?
+  state        String?
+  country      String    @default("NG")
+  timezone     String    @default("Africa/Lagos")
+  createdAt    DateTime  @default(now())
+  deletedAt    DateTime?
+
+  employees Employee[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+model Department {
+  id             String    @id @default(cuid())
+  companyId      String
+  name           String
+  parentId       String?
+  parent         Department?  @relation("DepartmentTree", fields: [parentId], references: [id], onDelete: SetNull)
+  children       Department[] @relation("DepartmentTree")
+  headEmployeeId String?
+  createdAt      DateTime  @default(now())
+  deletedAt      DateTime?
+
+  employees Employee[]
+
+  @@unique([companyId, name])
+  @@index([companyId])
+}
+
+// ─────────────────────────────── Employees ───────────────────────────────
+
+enum EmploymentStatus {
+  ACTIVE
+  ON_LEAVE
+  SUSPENDED
+  TERMINATED
+}
+
+enum EmploymentType {
+  FULL_TIME
+  PART_TIME
+  CONTRACT
+  INTERN
+  TEMPORARY
+}
+
+enum Gender {
+  MALE
+  FEMALE
+}
+
+/// Self-service profile setup lifecycle: employee submits → admin reviews → employee accepts terms.
+enum OnboardingStatus {
+  NOT_SUBMITTED
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+model Employee {
+  id              String           @id @default(cuid())
+  companyId       String
+  employeeNo      String
+  userId          String?
+  firstName       String
+  middleName      String?
+  lastName        String
+  preferredName   String?
+  workEmail       String
+  personalEmail   String?
+  phone           String?
+  addressLine1    String?
+  city            String?
+  state           String?
+  country         String?
+  dateOfBirth     DateTime?        @db.Date
+  gender          Gender?
+  photoUrl        String?
+
+  // Banking / identity details collected during onboarding.
+  // Field-level restricted like salary: visible only to the employee
+  // themself and holders of `compensation.read`.
+  bvn               String?
+  bankName          String?
+  bankAccountNumber String?
+
+  // Self-service onboarding lifecycle.
+  onboardingStatus       OnboardingStatus @default(NOT_SUBMITTED)
+  onboardingSubmittedAt  DateTime?
+  onboardingReviewedAt   DateTime?
+  onboardingReviewedById String?
+  onboardingNote         String?
+  termsAcceptedAt        DateTime?
+  status          EmploymentStatus @default(ACTIVE)
+  employmentType  EmploymentType   @default(FULL_TIME)
+  hireDate        DateTime         @db.Date
+  probationEndsOn DateTime?        @db.Date
+  terminationDate DateTime?        @db.Date
+  jobTitle        String
+  grade           String?
+  departmentId    String?
+  department      Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)
+  locationId      String?
+  location        Location?        @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  managerId       String?
+  manager         Employee?        @relation("Reports", fields: [managerId], references: [id], onDelete: SetNull)
+  reports         Employee[]       @relation("Reports")
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  deletedAt       DateTime?
+
+  membership        Membership?
+  emergencyContacts EmergencyContact[]
+  compensations     Compensation[]
+  events            EmploymentEvent[]
+  leaveRequests     LeaveRequest[]
+  leaveBalances     LeaveBalance[]
+  attendance        AttendanceRecord[]
+  corrections       AttendanceCorrection[]
+
+  @@unique([companyId, workEmail])
+  @@unique([companyId, employeeNo])
+  @@index([companyId, status])
+  @@index([companyId, departmentId])
+  @@index([companyId, managerId])
+}
+
+model EmergencyContact {
+  id           String   @id @default(cuid())
+  companyId    String
+  employeeId   String
+  employee     Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  name         String
+  relationship String?
+  phone        String
+  email        String?
+  createdAt    DateTime @default(now())
+
+  @@index([companyId])
+  @@index([employeeId])
+}
+
+enum PayFrequency {
+  MONTHLY
+  BIWEEKLY
+  WEEKLY
+  ANNUAL
+}
+
+model Compensation {
+  id            String       @id @default(cuid())
+  companyId     String
+  employeeId    String
+  employee      Employee     @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  effectiveDate DateTime     @db.Date
+  baseSalary    Decimal      @db.Decimal(18, 2)
+  currency      String       @default("NGN")
+  payFrequency  PayFrequency @default(MONTHLY)
+  note          String?
+  createdById   String?
+  createdAt     DateTime     @default(now())
+
+  @@index([companyId])
+  @@index([employeeId, effectiveDate])
+}
+
+enum EmploymentEventType {
+  HIRE
+  PROMOTION
+  TRANSFER
+  MANAGER_CHANGE
+  COMPENSATION_CHANGE
+  STATUS_CHANGE
+  TERMINATION
+  REHIRE
+}
+
+model EmploymentEvent {
+  id            String              @id @default(cuid())
+  companyId     String
+  employeeId    String
+  employee      Employee            @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  type          EmploymentEventType
+  effectiveDate DateTime            @db.Date
+  details       Json?
+  createdById   String?
+  createdAt     DateTime            @default(now())
+
+  @@index([companyId])
+  @@index([employeeId, createdAt])
+}
+
+// ─────────────────────────────── Leave ───────────────────────────────
+
+model Holiday {
+  id        String   @id @default(cuid())
+  companyId String
+  name      String
+  date      DateTime @db.Date
+  createdAt DateTime @default(now())
+
+  @@unique([companyId, date, name])
+  @@index([companyId, date])
+}
+
+model LeaveType {
+  id          String    @id @default(cuid())
+  companyId   String
+  name        String
+  code        String
+  paid        Boolean   @default(true)
+  allowHalfDay Boolean  @default(true)
+  color       String?
+  createdAt   DateTime  @default(now())
+  deletedAt   DateTime?
+
+  policies LeavePolicy[]
+  requests LeaveRequest[]
+  balances LeaveBalance[]
+
+  @@unique([companyId, code])
+  @@index([companyId])
+}
+
+enum AccrualMethod {
+  ANNUAL_GRANT
+  MONTHLY_ACCRUAL
+  NONE
+}
+
+model LeavePolicy {
+  id                    String        @id @default(cuid())
+  companyId             String
+  leaveTypeId           String        @unique
+  leaveType             LeaveType     @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  accrualMethod         AccrualMethod @default(ANNUAL_GRANT)
+  annualEntitlementDays Decimal       @db.Decimal(5, 2) @default(0)
+  maxCarryoverDays      Decimal       @db.Decimal(5, 2) @default(0)
+  approvalLevels        Int           @default(1)
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  @@index([companyId])
+}
+
+model LeaveBalance {
+  id              String    @id @default(cuid())
+  companyId       String
+  employeeId      String
+  employee        Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId     String
+  leaveType       LeaveType @relation(fields: [leaveTypeId], references: [id], onDelete: Cascade)
+  year            Int
+  entitledDays    Decimal   @db.Decimal(6, 2) @default(0)
+  carriedOverDays Decimal   @db.Decimal(6, 2) @default(0)
+  adjustmentDays  Decimal   @db.Decimal(6, 2) @default(0)
+  usedDays        Decimal   @db.Decimal(6, 2) @default(0)
+  updatedAt       DateTime  @updatedAt
+
+  @@unique([employeeId, leaveTypeId, year])
+  @@index([companyId])
+}
+
+enum LeaveStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+model LeaveRequest {
+  id            String      @id @default(cuid())
+  companyId     String
+  employeeId    String
+  employee      Employee    @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  leaveTypeId   String
+  leaveType     LeaveType   @relation(fields: [leaveTypeId], references: [id], onDelete: Restrict)
+  startDate     DateTime    @db.Date
+  endDate       DateTime    @db.Date
+  startHalfDay  Boolean     @default(false)
+  endHalfDay    Boolean     @default(false)
+  totalDays     Decimal     @db.Decimal(5, 2)
+  reason        String?
+  status        LeaveStatus @default(PENDING)
+  currentLevel  Int         @default(1)
+  requestedById String?
+  decidedAt     DateTime?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  approvals LeaveApproval[]
+
+  @@index([companyId, status])
+  @@index([employeeId])
+}
+
+model LeaveApproval {
+  id             String       @id @default(cuid())
+  companyId      String
+  leaveRequestId String
+  leaveRequest   LeaveRequest @relation(fields: [leaveRequestId], references: [id], onDelete: Cascade)
+  level          Int
+  approverUserId String?
+  decision       LeaveStatus?
+  note           String?
+  decidedAt      DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@unique([leaveRequestId, level])
+  @@index([companyId])
+}
+
+// ─────────────────────────────── Attendance ───────────────────────────────
+
+model AttendancePolicy {
+  id               String   @id @default(cuid())
+  companyId        String   @unique
+  name             String   @default("Default")
+  workStartTime    String   @default("09:00")
+  workEndTime      String   @default("17:00")
+  lateGraceMinutes Int      @default(10)
+  workDays         Int[]    @default([1, 2, 3, 4, 5])
+  updatedAt        DateTime @updatedAt
+}
+
+model AttendanceRecord {
+  id         String    @id @default(cuid())
+  companyId  String
+  employeeId String
+  employee   Employee  @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  day        DateTime  @db.Date
+  clockInAt  DateTime
+  clockOutAt DateTime?
+  late       Boolean   @default(false)
+  source     String    @default("WEB")
+  clockInIp  String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@unique([employeeId, day])
+  @@index([companyId, day])
+}
+
+enum CorrectionStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model AttendanceCorrection {
+  id                 String           @id @default(cuid())
+  companyId          String
+  employeeId         String
+  employee           Employee         @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  day                DateTime         @db.Date
+  proposedClockInAt  DateTime
+  proposedClockOutAt DateTime?
+  reason             String
+  status             CorrectionStatus @default(PENDING)
+  requestedById      String?
+  reviewedById       String?
+  reviewNote         String?
+  reviewedAt         DateTime?
+  createdAt          DateTime         @default(now())
+
+  @@index([companyId, status])
+  @@index([employeeId])
+}

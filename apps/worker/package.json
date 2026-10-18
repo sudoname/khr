@@ -1,0 +1,28 @@
+{
+  "name": "@peopleflow/worker",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "node --watch -r ts-node/register src/main.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/main.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "echo \"no worker tests\" && exit 0"
+  },
+  "dependencies": {
+    "@peopleflow/database": "workspace:*",
+    "bullmq": "^5.8.3",
+    "dotenv": "^16.4.5",
+    "ioredis": "^5.4.1",
+    "nodemailer": "^6.9.14",
+    "pino": "^9.2.0"
+  },
+  "devDependencies": {
+    "@peopleflow/config": "workspace:*",
+    "@types/node": "^20.14.0",
+    "@types/nodemailer": "^6.4.15",
+    "pino-pretty": "^11.2.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  }
+}

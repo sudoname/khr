@@ -1,0 +1,36 @@
+{
+  "name": "peopleflow",
+  "private": true,
+  "version": "0.1.0",
+  "description": "PeopleFlow HR - multi-tenant HR management platform",
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "pnpm@10.30.1",
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "test:e2e": "pnpm --filter @peopleflow/api test:e2e",
+    "typecheck": "turbo run typecheck",
+    "db:migrate": "pnpm --filter @peopleflow/database migrate:dev",
+    "db:deploy": "pnpm --filter @peopleflow/database migrate:deploy",
+    "db:seed": "pnpm --filter @peopleflow/database seed",
+    "db:generate": "pnpm --filter @peopleflow/database generate"
+  },
+  "devDependencies": {
+    "turbo": "^2.1.0",
+    "typescript": "^5.4.5"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "@nestjs/core",
+      "@prisma/client",
+      "@prisma/engines",
+      "argon2",
+      "esbuild",
+      "msgpackr-extract",
+      "prisma"
+    ]
+  }
+}

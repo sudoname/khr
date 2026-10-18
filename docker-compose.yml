@@ -1,0 +1,87 @@
+name: peopleflow
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: peopleflow
+      POSTGRES_PASSWORD: peopleflow
+      POSTGRES_DB: peopleflow
+    ports:
+      - "5434:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peopleflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    ports:
+      - "1025:1025" # SMTP
+      - "8025:8025" # Web UI
+
+  # Application containers (optional for local dev; run `pnpm dev` instead).
+  # Enable with: docker compose --profile apps up
+  api:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://peopleflow:peopleflow@postgres:5432/peopleflow
+      REDIS_URL: redis://redis:6379
+      WEB_ORIGIN: http://localhost:3000
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      API_PORT: 4000
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    environment:
+      DATABASE_URL: postgresql://peopleflow:peopleflow@postgres:5432/peopleflow
+      REDIS_URL: redis://redis:6379
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    profiles: ["apps"]
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    environment:
+      API_URL: http://api:4000
+    ports:
+      - "3000:3000"
+    depends_on:
+      - api
+
+volumes:
+  pgdata:

@@ -1,0 +1,12 @@
+{
+  "extends": "@peopleflow/config/tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "baseUrl": ".",
+    "declaration": false
+  },
+  "ts-node": {
+    "transpileOnly": true
+  },
+  "include": ["src"]
+}
