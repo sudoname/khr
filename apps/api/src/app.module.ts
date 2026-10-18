@@ -14,6 +14,7 @@ import { InfraModule } from './infra/infra.module';
 import { LeaveModule } from './leave/leave.module';
 import { LocationsModule } from './locations/locations.module';
 import { OrgModule } from './org/org.module';
+import { PayrollModule } from './payroll/payroll.module';
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { OrgModule } from './org/org.module';
     OrgModule,
     LeaveModule,
     AttendanceModule,
+    PayrollModule,
     AuditModule,
   ],
   providers: [

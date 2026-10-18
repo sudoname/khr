@@ -15,10 +15,12 @@ interface NavItem {
 
 const NAV: NavItem[] = [
   { href: '/dashboard', label: 'Dashboard' },
+  { href: '/profile', label: 'My profile', permission: 'employee.read.self' },
   { href: '/people', label: 'People', permission: 'employee.read' },
   { href: '/org', label: 'Org chart', permission: 'org.read' },
   { href: '/leave', label: 'Leave', permission: 'leave.request.self' },
   { href: '/attendance', label: 'Attendance', permission: 'attendance.clock.self' },
+  { href: '/payroll', label: 'Payroll', permission: 'payroll.read.self' },
 ];
 
 const SETTINGS_NAV: NavItem[] = [

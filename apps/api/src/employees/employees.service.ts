@@ -221,6 +221,44 @@ export class EmployeesService {
     return this.me().catch(() => employee);
   }
 
+  // ─────────────────────────── profile photo ───────────────────────────
+
+  private static readonly AVATAR_MIMES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+
+  async uploadAvatar(file: Express.Multer.File) {
+    const employeeId = this.ctx.employeeIdOrNull;
+    if (!employeeId) throw new NotFoundException('No employee record linked to your membership');
+    if (!EmployeesService.AVATAR_MIMES.has(file.mimetype)) {
+      throw new BadRequestException('Profile photo must be a JPEG, PNG or WebP image');
+    }
+    await this.db.employeeAvatar.upsert({
+      where: { employeeId },
+      create: { companyId: this.ctx.companyId, employeeId, mime: file.mimetype, data: file.buffer },
+      update: { mime: file.mimetype, data: file.buffer },
+    });
+    // Cache-busting version so browsers pick up the new photo immediately.
+    const photoUrl = `/api/employees/${employeeId}/avatar?v=${Date.now()}`;
+    await this.db.employee.update({ where: { id: employeeId }, data: { photoUrl } });
+    await this.audit.log('employee.avatar_updated', { entity: 'Employee', entityId: employeeId });
+    return { photoUrl };
+  }
+
+  async removeAvatar() {
+    const employeeId = this.ctx.employeeIdOrNull;
+    if (!employeeId) throw new NotFoundException('No employee record linked to your membership');
+    await this.db.employeeAvatar.deleteMany({ where: { employeeId } });
+    await this.db.employee.update({ where: { id: employeeId }, data: { photoUrl: null } });
+    await this.audit.log('employee.avatar_removed', { entity: 'Employee', entityId: employeeId });
+    return { photoUrl: null };
+  }
+
+  /** Avatars are directory-level data: any authenticated member may view them. */
+  async getAvatar(employeeId: string) {
+    const avatar = await this.db.employeeAvatar.findFirst({ where: { employeeId } });
+    if (!avatar) throw new NotFoundException('No profile photo');
+    return avatar;
+  }
+
   // ─────────────────────────── lifecycle ───────────────────────────
 
   private async validateReferences(input: { departmentId?: string | null; locationId?: string | null; managerId?: string | null }) {

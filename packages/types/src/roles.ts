@@ -47,6 +47,10 @@ export const PERMISSIONS = [
   'attendance.correct.request',
   'attendance.correct.review',
   'attendance.policy.manage',
+  // payroll
+  'payroll.read.self',   // own payslips
+  'payroll.manage',      // settings, create/compute/submit runs, bank schedule
+  'payroll.approve',     // approve/reject/mark-paid (separation of duties)
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -58,6 +62,7 @@ const EMPLOYEE_BASE: Permission[] = [
   'leave.request.self',
   'attendance.clock.self',
   'attendance.correct.request',
+  'payroll.read.self',
 ];
 
 export const ROLE_PERMISSIONS: Record<CompanyRole, Permission[]> = {
@@ -104,7 +109,7 @@ export const ROLE_PERMISSIONS: Record<CompanyRole, Permission[]> = {
   ],
   EMPLOYEE: [...EMPLOYEE_BASE],
   RECRUITER: [...EMPLOYEE_BASE],
-  PAYROLL_OFFICER: [...EMPLOYEE_BASE, 'compensation.read', 'employee.export'],
+  PAYROLL_OFFICER: [...EMPLOYEE_BASE, 'compensation.read', 'employee.export', 'payroll.manage'],
 };
 
 export function roleHas(role: CompanyRole, permission: Permission): boolean {

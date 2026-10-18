@@ -252,6 +252,8 @@ model Employee {
   leaveBalances     LeaveBalance[]
   attendance        AttendanceRecord[]
   corrections       AttendanceCorrection[]
+  payslips          Payslip[]
+  avatar            EmployeeAvatar?
 
   @@unique([companyId, workEmail])
   @@unique([companyId, employeeNo])
@@ -273,6 +275,19 @@ model EmergencyContact {
 
   @@index([companyId])
   @@index([employeeId])
+}
+
+// Profile photo stored in the database so it survives container rebuilds.
+model EmployeeAvatar {
+  id         String   @id @default(cuid())
+  companyId  String
+  employeeId String   @unique
+  employee   Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  mime       String
+  data       Bytes
+  updatedAt  DateTime @updatedAt
+
+  @@index([companyId])
 }
 
 enum PayFrequency {
@@ -443,6 +458,101 @@ model LeaveApproval {
 
   @@unique([leaveRequestId, level])
   @@index([companyId])
+}
+
+// ─────────────────────────────── Payroll ───────────────────────────────
+
+/// Company-level payroll configuration (Nigeria). Percentages of gross
+/// monthly pay used to derive the statutory Basic/Housing/Transport split.
+model PayrollSettings {
+  id        String @id @default(cuid())
+  companyId String @unique
+
+  basicPercent     Decimal @db.Decimal(5, 2) @default(50)
+  housingPercent   Decimal @db.Decimal(5, 2) @default(25)
+  transportPercent Decimal @db.Decimal(5, 2) @default(25)
+
+  pensionEnabled         Boolean @default(true)
+  pensionEmployeePercent Decimal @db.Decimal(5, 2) @default(8)
+  pensionEmployerPercent Decimal @db.Decimal(5, 2) @default(10)
+  nhfEnabled             Boolean @default(false)
+  nhfPercent             Decimal @db.Decimal(5, 2) @default(2.5)
+
+  updatedAt DateTime @updatedAt
+}
+
+enum PayrollRunStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+}
+
+model PayrollRun {
+  id        String           @id @default(cuid())
+  companyId String
+  year      Int
+  month     Int // 1-12
+  status    PayrollRunStatus @default(DRAFT)
+  note      String?
+
+  totalGross           Decimal @db.Decimal(18, 2) @default(0)
+  totalPaye            Decimal @db.Decimal(18, 2) @default(0)
+  totalPensionEmployee Decimal @db.Decimal(18, 2) @default(0)
+  totalPensionEmployer Decimal @db.Decimal(18, 2) @default(0)
+  totalNhf             Decimal @db.Decimal(18, 2) @default(0)
+  totalNet             Decimal @db.Decimal(18, 2) @default(0)
+
+  createdById  String?
+  submittedAt  DateTime?
+  approvedById String?
+  approvedAt   DateTime?
+  paidAt       DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  payslips Payslip[]
+
+  @@unique([companyId, year, month])
+  @@index([companyId, status])
+}
+
+/// Immutable snapshot of one employee's pay for a run. Monetary values are
+/// monthly amounts in the company currency (NGN).
+model Payslip {
+  id         String     @id @default(cuid())
+  companyId  String
+  runId      String
+  run        PayrollRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+  employeeId String
+  employee   Employee   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  // Snapshots so historical payslips survive later profile edits.
+  employeeName      String
+  employeeNo        String
+  bankName          String?
+  bankAccountNumber String?
+
+  grossMonthly    Decimal @db.Decimal(18, 2)
+  basic           Decimal @db.Decimal(18, 2)
+  housing         Decimal @db.Decimal(18, 2)
+  transport       Decimal @db.Decimal(18, 2)
+  otherAllowances Decimal @db.Decimal(18, 2) @default(0)
+
+  pensionEmployee Decimal @db.Decimal(18, 2) @default(0)
+  pensionEmployer Decimal @db.Decimal(18, 2) @default(0)
+  nhf             Decimal @db.Decimal(18, 2) @default(0)
+  cra             Decimal @db.Decimal(18, 2) @default(0)
+  taxableIncome   Decimal @db.Decimal(18, 2) @default(0)
+  paye            Decimal @db.Decimal(18, 2) @default(0)
+  netPay          Decimal @db.Decimal(18, 2)
+  currency        String  @default("NGN")
+
+  createdAt DateTime @default(now())
+
+  @@unique([runId, employeeId])
+  @@index([companyId])
+  @@index([employeeId])
 }
 
 // ─────────────────────────────── Attendance ───────────────────────────────

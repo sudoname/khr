@@ -25,6 +25,10 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'AttendanceRecord',
   'AttendanceCorrection',
   'AuditLog',
+  'EmployeeAvatar',
+  'PayrollSettings',
+  'PayrollRun',
+  'Payslip',
 ]);
 
 const UNIQUE_WHERE_OPS = new Set([

@@ -72,6 +72,16 @@ describe('role permission matrix', () => {
     expect(roleHas('EMPLOYEE', 'leave.approve')).toBe(false);
   });
 
+  it('separates payroll duties: officer prepares, admin approves', () => {
+    expect(roleHas('PAYROLL_OFFICER', 'payroll.manage')).toBe(true);
+    expect(roleHas('PAYROLL_OFFICER', 'payroll.approve')).toBe(false);
+    expect(roleHas('COMPANY_ADMIN', 'payroll.approve')).toBe(true);
+    expect(roleHas('HR_ADMIN', 'payroll.manage')).toBe(false);
+    for (const role of COMPANY_ROLES) {
+      expect(roleHas(role, 'payroll.read.self')).toBe(true);
+    }
+  });
+
   it('requires MFA for privileged roles only', () => {
     expect(MFA_REQUIRED_ROLES).toEqual(
       expect.arrayContaining(['COMPANY_ADMIN', 'HR_ADMIN', 'PAYROLL_OFFICER']),

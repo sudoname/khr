@@ -5,3 +5,4 @@ export * from './schemas/org';
 export * from './schemas/leave';
 export * from './schemas/attendance';
 export * from './schemas/onboarding';
+export * from './schemas/payroll';

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -56,6 +57,30 @@ export class EmployeesController {
   @Patch('me')
   updateMe(@Body(new ZodPipe(employeeSelfUpdateSchema)) body: Record<string, never>) {
     return this.employees.updateSelf(body);
+  }
+
+  @RequirePermission('employee.read.self')
+  @Post('me/avatar')
+  @ApiConsumes('multipart/form-data')
+  @UseInterceptors(FileInterceptor('file', { limits: { fileSize: 2 * 1024 * 1024 } }))
+  uploadAvatar(@UploadedFile() file?: Express.Multer.File) {
+    if (!file?.buffer?.length) throw new BadRequestException('Upload an image in the "file" field');
+    return this.employees.uploadAvatar(file);
+  }
+
+  @RequirePermission('employee.read.self')
+  @Delete('me/avatar')
+  removeAvatar() {
+    return this.employees.removeAvatar();
+  }
+
+  @RequirePermission('employee.read.self')
+  @Get(':id/avatar')
+  async avatar(@Param('id') id: string, @Res() res: Response) {
+    const avatar = await this.employees.getAvatar(id);
+    res.setHeader('Content-Type', avatar.mime);
+    res.setHeader('Cache-Control', 'private, max-age=300');
+    res.send(Buffer.from(avatar.data));
   }
 
   @RequirePermission('employee.export')
