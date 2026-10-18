@@ -1,12 +1,17 @@
-import { Body, Controller, Get, Param, Post, Put, Res } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post, Put, Query, Res } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import {
   payrollRejectSchema,
   payrollRunCreateSchema,
   payrollSettingsSchema,
+  payrollTaxApprovalSchema,
 } from '@peopleflow/types';
-import type { PayrollRunCreateInput, PayrollSettingsInput } from '@peopleflow/types';
+import type {
+  PayrollRunCreateInput,
+  PayrollSettingsInput,
+  PayrollTaxApprovalInput,
+} from '@peopleflow/types';
 import { RequirePermission } from '../common/decorators';
 import { ZodPipe } from '../common/zod.pipe';
 import { PayrollService } from './payroll.service';
@@ -28,6 +33,23 @@ export class PayrollController {
   @Put('settings')
   updateSettings(@Body(new ZodPipe(payrollSettingsSchema)) body: PayrollSettingsInput) {
     return this.payroll.updateSettings(body);
+  }
+
+  @RequirePermission('payroll.manage')
+  @Get('tax-status')
+  taxStatus(@Query('year') year?: string, @Query('month') month?: string) {
+    const y = year ? Number(year) : undefined;
+    const m = month ? Number(month) : undefined;
+    return this.payroll.taxStatus(
+      Number.isInteger(y) ? y : undefined,
+      Number.isInteger(m) ? m : undefined,
+    );
+  }
+
+  @RequirePermission('payroll.approve')
+  @Post('settings/approve-tax-rules')
+  approveTaxRules(@Body(new ZodPipe(payrollTaxApprovalSchema)) body: PayrollTaxApprovalInput) {
+    return this.payroll.approveTaxRules(body.version);
   }
 
   // ───────── self-service ─────────

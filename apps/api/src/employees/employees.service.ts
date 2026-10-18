@@ -148,15 +148,20 @@ export class EmployeesService {
   }
 
   /**
-   * BVN and bank details are field-level restricted like salary: only the
-   * employee themself and holders of `compensation.read` may see them.
+   * BVN, bank details and the rent-relief declaration are field-level
+   * restricted like salary: only the employee themself and holders of
+   * `compensation.read` may see them.
    */
-  private stripBankDetails<T extends { bvn: string | null; bankName: string | null; bankAccountNumber: string | null }>(
-    employee: T,
-    employeeId: string,
-  ): T {
+  private stripBankDetails<
+    T extends {
+      bvn: string | null;
+      bankName: string | null;
+      bankAccountNumber: string | null;
+      annualRentDeclared: unknown;
+    },
+  >(employee: T, employeeId: string): T {
     if (this.ctx.employeeIdOrNull === employeeId || this.ctx.can('compensation.read')) return employee;
-    return { ...employee, bvn: null, bankName: null, bankAccountNumber: null };
+    return { ...employee, bvn: null, bankName: null, bankAccountNumber: null, annualRentDeclared: null };
   }
 
   async get(id: string) {
@@ -609,6 +614,28 @@ export class EmployeesService {
     });
     await this.audit.log('compensation.created', { entity: 'Compensation', entityId: record.id, meta: { employeeId: id } });
     return record;
+  }
+
+  /**
+   * NTA 2025 rent relief (s.30): 20% of documented annual rent, capped at
+   * ₦500,000, deductible from chargeable income from 2026. HR records the
+   * employee's declaration here; the payroll engine applies the cap. Null
+   * clears the declaration (no declaration → no relief).
+   */
+  async setRentDeclaration(id: string, annualRentDeclared: string | null) {
+    const existing = await this.db.employee.findFirst({ where: { id, deletedAt: null }, select: { id: true } });
+    if (!existing) throw new NotFoundException('Employee not found');
+    const employee = await this.db.employee.update({
+      where: { id },
+      data: { annualRentDeclared },
+      select: { id: true, annualRentDeclared: true },
+    });
+    await this.audit.log('employee.rent_declaration_updated', {
+      entity: 'Employee',
+      entityId: id,
+      meta: { declared: annualRentDeclared !== null },
+    });
+    return employee;
   }
 
   // ─────────────────────────── CSV import / export ───────────────────────────

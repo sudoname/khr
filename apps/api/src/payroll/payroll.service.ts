@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { stringify } from 'csv-stringify/sync';
+import { Prisma } from '@peopleflow/database';
 import type { PayrollRunCreateInput, PayrollSettingsInput } from '@peopleflow/types';
 import { csvSafe } from '../common/csv';
 import { config } from '../config';
@@ -13,7 +14,15 @@ import { AuditService } from '../infra/audit.service';
 import { renderEmail } from '../infra/email-template';
 import { PrismaService } from '../infra/prisma.service';
 import { QueueService } from '../infra/queue.service';
-import { computePayslip, toMonthlyGross, type PayrollComputeSettings } from './nigeria-tax';
+import {
+  computePayslip,
+  ENGINE_VERSION,
+  regimeForPeriod,
+  toComputeSettings,
+  toMonthlyGross,
+  type PayrollComputeSettings,
+  type TaxRegimeId,
+} from './nigeria-tax';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -29,6 +38,12 @@ const DEFAULT_SETTINGS: PayrollSettingsInput = {
   pensionEmployerPercent: 10,
   nhfEnabled: false,
   nhfPercent: 2.5,
+  nhisEnabled: false,
+  nhisPercent: 5,
+  nsitfEnabled: false,
+  nsitfPercent: 1,
+  itfEnabled: false,
+  itfPercent: 1,
 };
 
 @Injectable()
@@ -62,17 +77,83 @@ export class PayrollService {
   }
 
   private async computeSettings(): Promise<PayrollComputeSettings> {
+    // Prisma Decimal columns flow straight into the Decimal engine — no
+    // float conversion anywhere on the money path.
     const s = await this.getSettings();
+    return toComputeSettings(s);
+  }
+
+  /**
+   * Tax-rule validation status for a payroll period. Finalization (finance
+   * approval / mark-paid) is blocked until an authorized approver has
+   * attested the engine version that governs the run's period.
+   */
+  async taxStatus(year?: number, month?: number) {
+    const now = new Date();
+    const y = year ?? now.getUTCFullYear();
+    const m = month ?? now.getUTCMonth() + 1;
+    const regime: TaxRegimeId = regimeForPeriod(y, m);
+    const requiredVersion = ENGINE_VERSION[regime];
+    const s = await this.db.payrollSettings.findFirst({
+      where: { companyId: this.ctx.companyId },
+      select: { taxRulesApprovedVersion: true, taxRulesApprovedAt: true, taxRulesApprovedById: true },
+    });
     return {
-      basicPercent: Number(s.basicPercent),
-      housingPercent: Number(s.housingPercent),
-      transportPercent: Number(s.transportPercent),
-      pensionEnabled: s.pensionEnabled,
-      pensionEmployeePercent: Number(s.pensionEmployeePercent),
-      pensionEmployerPercent: Number(s.pensionEmployerPercent),
-      nhfEnabled: s.nhfEnabled,
-      nhfPercent: Number(s.nhfPercent),
+      regime,
+      requiredVersion,
+      approvedVersion: s?.taxRulesApprovedVersion ?? null,
+      approvedAt: s?.taxRulesApprovedAt ?? null,
+      approved: s?.taxRulesApprovedVersion === requiredVersion,
     };
+  }
+
+  /** Record a human attestation that the given engine version was reviewed. */
+  async approveTaxRules(version: string) {
+    const known = Object.values(ENGINE_VERSION);
+    if (!known.includes(version)) {
+      throw new BadRequestException(`Unknown tax engine version. Expected one of: ${known.join(', ')}`);
+    }
+    const settings = await this.db.payrollSettings.upsert({
+      where: { companyId: this.ctx.companyId },
+      create: {
+        companyId: this.ctx.companyId,
+        ...DEFAULT_SETTINGS,
+        taxRulesApprovedVersion: version,
+        taxRulesApprovedById: this.ctx.userIdOrNull,
+        taxRulesApprovedAt: new Date(),
+      },
+      update: {
+        taxRulesApprovedVersion: version,
+        taxRulesApprovedById: this.ctx.userIdOrNull,
+        taxRulesApprovedAt: new Date(),
+      },
+    });
+    await this.audit.log('payroll.tax_rules_approved', {
+      entity: 'PayrollSettings',
+      entityId: settings.id,
+      meta: { version },
+    });
+    return this.taxStatus();
+  }
+
+  /** Throws unless the run's period has validated + approved tax rules. */
+  private async assertTaxRulesApproved(run: { year: number; month: number; engineVersion: string | null }) {
+    const regime = regimeForPeriod(run.year, run.month);
+    const requiredVersion = ENGINE_VERSION[regime];
+    if (run.engineVersion !== requiredVersion) {
+      throw new BadRequestException({
+        message:
+          'This run was computed with an outdated tax engine. Reject it back to draft and recompute before finalizing.',
+        code: 'TAX_ENGINE_STALE',
+      });
+    }
+    const status = await this.taxStatus(run.year, run.month);
+    if (!status.approved) {
+      throw new BadRequestException({
+        message: `Tax rules for this period (${requiredVersion}) have not been reviewed and approved. An authorized approver must approve them in payroll settings before payroll can be finalized.`,
+        code: 'TAX_RULES_NOT_APPROVED',
+      });
+    }
   }
 
   // ─────────────────────────── runs ───────────────────────────
@@ -122,6 +203,8 @@ export class PayrollService {
     if (run.status !== 'DRAFT') throw new BadRequestException('Only draft runs can be recomputed');
 
     const settings = await this.computeSettings();
+    const regime = regimeForPeriod(run.year, run.month);
+    const engineVersion = ENGINE_VERSION[regime];
     const periodEnd = new Date(Date.UTC(run.year, run.month, 0)); // last day of month
 
     const employees = await this.db.employee.findMany({
@@ -133,6 +216,7 @@ export class PayrollService {
         lastName: true,
         bankName: true,
         bankAccountNumber: true,
+        annualRentDeclared: true,
         compensations: {
           where: { effectiveDate: { lte: periodEnd } },
           orderBy: { effectiveDate: 'desc' },
@@ -159,32 +243,50 @@ export class PayrollService {
         skipped.push({ employeeNo: emp.employeeNo, name, reason: 'No compensation record' });
         continue;
       }
-      const grossMonthly = toMonthlyGross(Number(comp.baseSalary), comp.payFrequency);
+      // comp.baseSalary is a Prisma Decimal and stays Decimal end-to-end.
+      const grossMonthly = toMonthlyGross(comp.baseSalary, comp.payFrequency);
       slips.push({
         employeeId: emp.id,
         employeeName: name,
         employeeNo: emp.employeeNo,
         bankName: emp.bankName,
         bankAccountNumber: emp.bankAccountNumber,
-        computed: computePayslip(grossMonthly, settings),
+        computed: computePayslip(
+          { grossMonthly, annualRentDeclared: emp.annualRentDeclared },
+          settings,
+          regime,
+        ),
       });
     }
 
-    // Totals are summed in integer kobo so float error cannot accumulate
-    // across hundreds of payslips; converted back to naira strings at the end.
-    const kobo = (n: number) => Math.round(n * 100);
-    const naira = (k: number) => (k / 100).toFixed(2);
+    // Totals summed with Decimal — no float error can accumulate across
+    // hundreds of payslips.
+    const Z = new Prisma.Decimal(0);
     const totals = slips.reduce(
-      (acc, s) => {
-        acc.totalGross += kobo(s.computed.grossMonthly);
-        acc.totalPaye += kobo(s.computed.paye);
-        acc.totalPensionEmployee += kobo(s.computed.pensionEmployee);
-        acc.totalPensionEmployer += kobo(s.computed.pensionEmployer);
-        acc.totalNhf += kobo(s.computed.nhf);
-        acc.totalNet += kobo(s.computed.netPay);
-        return acc;
+      (acc, s) => ({
+        totalGross: acc.totalGross.add(s.computed.grossMonthly),
+        totalPaye: acc.totalPaye.add(s.computed.paye),
+        totalPensionEmployee: acc.totalPensionEmployee.add(s.computed.pensionEmployee),
+        totalPensionEmployer: acc.totalPensionEmployer.add(s.computed.pensionEmployer),
+        totalNhf: acc.totalNhf.add(s.computed.nhf),
+        totalNhis: acc.totalNhis.add(s.computed.nhis),
+        totalRentRelief: acc.totalRentRelief.add(s.computed.rentRelief),
+        totalNsitf: acc.totalNsitf.add(s.computed.nsitf),
+        totalItf: acc.totalItf.add(s.computed.itf),
+        totalNet: acc.totalNet.add(s.computed.netPay),
+      }),
+      {
+        totalGross: Z,
+        totalPaye: Z,
+        totalPensionEmployee: Z,
+        totalPensionEmployer: Z,
+        totalNhf: Z,
+        totalNhis: Z,
+        totalRentRelief: Z,
+        totalNsitf: Z,
+        totalItf: Z,
+        totalNet: Z,
       },
-      { totalGross: 0, totalPaye: 0, totalPensionEmployee: 0, totalPensionEmployer: 0, totalNhf: 0, totalNet: 0 },
     );
 
     // Interactive transactions must run on the raw client (the tenant
@@ -199,12 +301,18 @@ export class PayrollService {
       const locked = await tx.payrollRun.updateMany({
         where: { id: runId, companyId, status: 'DRAFT' },
         data: {
-          totalGross: naira(totals.totalGross),
-          totalPaye: naira(totals.totalPaye),
-          totalPensionEmployee: naira(totals.totalPensionEmployee),
-          totalPensionEmployer: naira(totals.totalPensionEmployer),
-          totalNhf: naira(totals.totalNhf),
-          totalNet: naira(totals.totalNet),
+          taxRegime: regime,
+          engineVersion,
+          totalGross: totals.totalGross,
+          totalPaye: totals.totalPaye,
+          totalPensionEmployee: totals.totalPensionEmployee,
+          totalPensionEmployer: totals.totalPensionEmployer,
+          totalNhf: totals.totalNhf,
+          totalNhis: totals.totalNhis,
+          totalRentRelief: totals.totalRentRelief,
+          totalNsitf: totals.totalNsitf,
+          totalItf: totals.totalItf,
+          totalNet: totals.totalNet,
         },
       });
       if (locked.count === 0) throw new BadRequestException('Only draft runs can be recomputed');
@@ -226,10 +334,15 @@ export class PayrollService {
             pensionEmployee: s.computed.pensionEmployee,
             pensionEmployer: s.computed.pensionEmployer,
             nhf: s.computed.nhf,
+            nhis: s.computed.nhis,
             cra: s.computed.cra,
+            rentRelief: s.computed.rentRelief,
             taxableIncome: s.computed.taxableIncome,
             paye: s.computed.paye,
             netPay: s.computed.netPay,
+            nsitf: s.computed.nsitf,
+            itf: s.computed.itf,
+            taxRegime: regime,
           })),
         });
       }
@@ -278,6 +391,12 @@ export class PayrollService {
   }
 
   async approve(id: string) {
+    const run = await this.db.payrollRun.findFirst({
+      where: { id },
+      select: { year: true, month: true, engineVersion: true },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found');
+    await this.assertTaxRulesApproved(run);
     return this.transition(
       id,
       ['PENDING_APPROVAL'],
@@ -296,6 +415,12 @@ export class PayrollService {
   }
 
   async markPaid(id: string) {
+    const run = await this.db.payrollRun.findFirst({
+      where: { id },
+      select: { year: true, month: true, engineVersion: true },
+    });
+    if (!run) throw new NotFoundException('Payroll run not found');
+    await this.assertTaxRulesApproved(run);
     const updated = await this.transition(id, ['APPROVED'], { status: 'PAID', paidAt: new Date() }, 'payroll.run_paid');
 
     // Notify employees that their payslip is available.

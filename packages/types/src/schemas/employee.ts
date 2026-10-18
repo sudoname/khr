@@ -85,6 +85,18 @@ export const changeManagerSchema = z.object({
   managerId: z.string().nullable(),
 });
 
+/**
+ * NTA 2025 rent relief declaration (20% of annual rent, capped at ₦500,000).
+ * Recorded by HR from the employee's documented declaration. Null clears it.
+ */
+export const rentDeclarationSchema = z.object({
+  annualRentDeclared: z
+    .string()
+    .regex(/^\d{1,16}(\.\d{1,2})?$/, 'Expected a decimal amount like 1200000.00')
+    .nullable(),
+});
+export type RentDeclarationInput = z.infer<typeof rentDeclarationSchema>;
+
 export const employeeListQuerySchema = z.object({
   q: z.string().trim().max(120).optional(),
   departmentId: z.string().optional(),

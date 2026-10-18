@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
   Res,
   UploadedFile,
@@ -22,9 +23,10 @@ import {
   employeeSelfUpdateSchema,
   employeeUpdateSchema,
   rehireEmployeeSchema,
+  rentDeclarationSchema,
   terminateEmployeeSchema,
 } from '@peopleflow/types';
-import type { EmployeeCreateInput, EmployeeUpdateInput } from '@peopleflow/types';
+import type { EmployeeCreateInput, EmployeeUpdateInput, RentDeclarationInput } from '@peopleflow/types';
 import { RequirePermission } from '../common/decorators';
 import { ZodPipe } from '../common/zod.pipe';
 import { EmployeesService } from './employees.service';
@@ -147,6 +149,15 @@ export class EmployeesController {
   @Get(':id/compensation')
   listCompensation(@Param('id') id: string) {
     return this.employees.listCompensation(id);
+  }
+
+  @RequirePermission('compensation.write')
+  @Put(':id/rent-declaration')
+  setRentDeclaration(
+    @Param('id') id: string,
+    @Body(new ZodPipe(rentDeclarationSchema)) body: RentDeclarationInput,
+  ) {
+    return this.employees.setRentDeclaration(id, body.annualRentDeclared);
   }
 
   @RequirePermission('compensation.write')

@@ -38,11 +38,26 @@ interface Settings {
   pensionEmployerPercent: string | number;
   nhfEnabled: boolean;
   nhfPercent: string | number;
+  nhisEnabled: boolean;
+  nhisPercent: string | number;
+  nsitfEnabled: boolean;
+  nsitfPercent: string | number;
+  itfEnabled: boolean;
+  itfPercent: string | number;
+}
+
+interface TaxStatus {
+  regime: string;
+  requiredVersion: string;
+  approvedVersion: string | null;
+  approvedAt: string | null;
+  approved: boolean;
 }
 
 export default function PayrollPage() {
   const { can } = useSession();
   const manage = can('payroll.manage');
+  const canApprove = can('payroll.approve');
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -61,16 +76,22 @@ export default function PayrollPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [settingsBusy, setSettingsBusy] = useState(false);
 
+  // tax-rule attestation
+  const [taxStatus, setTaxStatus] = useState<TaxStatus | null>(null);
+  const [approvingTax, setApprovingTax] = useState(false);
+
   const load = useCallback(async () => {
     try {
-      const [slips, runList, cfg] = await Promise.all([
+      const [slips, runList, cfg, tax] = await Promise.all([
         api.get<MyPayslip[]>('/payroll/payslips/me'),
         manage ? api.get<PayrollRunRow[]>('/payroll/runs') : Promise.resolve(null),
         manage ? api.get<Settings>('/payroll/settings') : Promise.resolve(null),
+        manage ? api.get<TaxStatus>('/payroll/tax-status') : Promise.resolve(null),
       ]);
       setPayslips(slips);
       if (runList) setRuns(runList);
       if (cfg) setSettings(cfg);
+      if (tax) setTaxStatus(tax);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Could not load payroll data');
       setPayslips((p) => p ?? []);
@@ -116,6 +137,12 @@ export default function PayrollPage() {
         pensionEmployerPercent: Number(settings.pensionEmployerPercent),
         nhfEnabled: settings.nhfEnabled,
         nhfPercent: Number(settings.nhfPercent),
+        nhisEnabled: settings.nhisEnabled,
+        nhisPercent: Number(settings.nhisPercent),
+        nsitfEnabled: settings.nsitfEnabled,
+        nsitfPercent: Number(settings.nsitfPercent),
+        itfEnabled: settings.itfEnabled,
+        itfPercent: Number(settings.itfPercent),
       });
       setSettings(saved);
       setShowSettings(false);
@@ -124,6 +151,23 @@ export default function PayrollPage() {
       setError(err instanceof Error ? err.message : 'Could not save settings');
     } finally {
       setSettingsBusy(false);
+    }
+  }
+
+  async function approveTaxRules() {
+    if (!taxStatus) return;
+    setError('');
+    setApprovingTax(true);
+    try {
+      const status = await api.post<TaxStatus>('/payroll/settings/approve-tax-rules', {
+        version: taxStatus.requiredVersion,
+      });
+      setTaxStatus(status);
+      setNotice(`Tax rules ${status.requiredVersion} approved. Payroll runs can now be finalized.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not approve tax rules');
+    } finally {
+      setApprovingTax(false);
     }
   }
 
@@ -145,6 +189,24 @@ export default function PayrollPage() {
 
       {error && <Alert kind="error">{error}</Alert>}
       {notice && <Alert kind="success">{notice}</Alert>}
+
+      {manage && taxStatus && !taxStatus.approved && (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3">
+          <div className="text-sm text-amber-900">
+            <span className="font-semibold">Tax rules pending approval.</span>{' '}
+            The current period is governed by <span className="font-mono">{taxStatus.requiredVersion}</span>
+            {taxStatus.approvedVersion
+              ? ` but the last approved version is ${taxStatus.approvedVersion}.`
+              : ' and no version has been approved yet.'}{' '}
+            Runs cannot be finalized or marked paid until an authorized approver reviews and approves them.
+          </div>
+          {canApprove && (
+            <Button variant="secondary" onClick={approveTaxRules} disabled={approvingTax}>
+              {approvingTax ? 'Approving…' : `Approve ${taxStatus.requiredVersion}`}
+            </Button>
+          )}
+        </div>
+      )}
 
       {manage && (
         <Card
@@ -320,6 +382,73 @@ export default function PayrollPage() {
                     max={100}
                     value={settings.nhfPercent}
                     onChange={(e) => setSettings((s) => s && { ...s, nhfPercent: e.target.value })}
+                  />
+                </Field>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.nhisEnabled}
+                  onChange={(e) => setSettings((s) => s && { ...s, nhisEnabled: e.target.checked })}
+                />
+                NHIS (health insurance) enabled — deductible from 2026
+              </label>
+              {settings.nhisEnabled && (
+                <Field label="NHIS % (of basic)">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={100}
+                    value={settings.nhisPercent}
+                    onChange={(e) => setSettings((s) => s && { ...s, nhisPercent: e.target.value })}
+                  />
+                </Field>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="text-xs font-medium text-slate-500">Employer-only obligations (not deducted from pay)</div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.nsitfEnabled}
+                  onChange={(e) => setSettings((s) => s && { ...s, nsitfEnabled: e.target.checked })}
+                />
+                NSITF enabled
+              </label>
+              {settings.nsitfEnabled && (
+                <Field label="NSITF % (of gross)">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={100}
+                    value={settings.nsitfPercent}
+                    onChange={(e) => setSettings((s) => s && { ...s, nsitfPercent: e.target.value })}
+                  />
+                </Field>
+              )}
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.itfEnabled}
+                  onChange={(e) => setSettings((s) => s && { ...s, itfEnabled: e.target.checked })}
+                />
+                ITF enabled
+              </label>
+              {settings.itfEnabled && (
+                <Field label="ITF % (of gross)">
+                  <Input
+                    type="number"
+                    step="0.01"
+                    min={0}
+                    max={100}
+                    value={settings.itfPercent}
+                    onChange={(e) => setSettings((s) => s && { ...s, itfPercent: e.target.value })}
                   />
                 </Field>
               )}

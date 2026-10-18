@@ -258,6 +258,10 @@ model Employee {
   bankName          String?
   bankAccountNumber String?
 
+  /// Employee-declared annual rent (₦/year) for the NTA 2025 rent relief
+  /// (20% of rent, capped at ₦500,000). Null = no declaration, no relief.
+  annualRentDeclared Decimal? @db.Decimal(18, 2)
+
   // Self-service onboarding lifecycle.
   onboardingStatus       OnboardingStatus @default(NOT_SUBMITTED)
   onboardingSubmittedAt  DateTime?
@@ -517,6 +521,24 @@ model PayrollSettings {
   nhfEnabled             Boolean @default(false)
   nhfPercent             Decimal @db.Decimal(5, 2) @default(2.5)
 
+  /// NHIS employee contribution (% of basic), NTA 2025 eligible deduction.
+  nhisEnabled Boolean @default(false)
+  nhisPercent Decimal @db.Decimal(5, 2) @default(5)
+
+  /// Employer-only statutory obligations (accrued per run, not deducted
+  /// from employee pay): NSITF (Employee Compensation Act) and ITF levy.
+  nsitfEnabled Boolean @default(false)
+  nsitfPercent Decimal @db.Decimal(5, 2) @default(1)
+  itfEnabled   Boolean @default(false)
+  itfPercent   Decimal @db.Decimal(5, 2) @default(1)
+
+  /// Tax-rule validation gate: finalization (approve / mark-paid) is blocked
+  /// until an authorized approver has attested the engine version applicable
+  /// to the run's period.
+  taxRulesApprovedVersion String?
+  taxRulesApprovedById    String?
+  taxRulesApprovedAt      DateTime?
+
   updatedAt DateTime @updatedAt
 }
 
@@ -535,11 +557,20 @@ model PayrollRun {
   status    PayrollRunStatus @default(DRAFT)
   note      String?
 
+  /// Tax regime + engine version stamped at compute time. Finalization is
+  /// rejected if these are stale relative to the current engine.
+  taxRegime     String?
+  engineVersion String?
+
   totalGross           Decimal @db.Decimal(18, 2) @default(0)
   totalPaye            Decimal @db.Decimal(18, 2) @default(0)
   totalPensionEmployee Decimal @db.Decimal(18, 2) @default(0)
   totalPensionEmployer Decimal @db.Decimal(18, 2) @default(0)
   totalNhf             Decimal @db.Decimal(18, 2) @default(0)
+  totalNhis            Decimal @db.Decimal(18, 2) @default(0)
+  totalRentRelief      Decimal @db.Decimal(18, 2) @default(0)
+  totalNsitf           Decimal @db.Decimal(18, 2) @default(0)
+  totalItf             Decimal @db.Decimal(18, 2) @default(0)
   totalNet             Decimal @db.Decimal(18, 2) @default(0)
 
   createdById  String?
@@ -581,10 +612,15 @@ model Payslip {
   pensionEmployee Decimal @db.Decimal(18, 2) @default(0)
   pensionEmployer Decimal @db.Decimal(18, 2) @default(0)
   nhf             Decimal @db.Decimal(18, 2) @default(0)
+  nhis            Decimal @db.Decimal(18, 2) @default(0)
   cra             Decimal @db.Decimal(18, 2) @default(0)
+  rentRelief      Decimal @db.Decimal(18, 2) @default(0)
   taxableIncome   Decimal @db.Decimal(18, 2) @default(0)
   paye            Decimal @db.Decimal(18, 2) @default(0)
   netPay          Decimal @db.Decimal(18, 2)
+  nsitf           Decimal @db.Decimal(18, 2) @default(0)
+  itf             Decimal @db.Decimal(18, 2) @default(0)
+  taxRegime       String?
   currency        String  @default("NGN")
 
   createdAt DateTime @default(now())

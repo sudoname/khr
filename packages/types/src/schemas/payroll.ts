@@ -12,12 +12,24 @@ export const payrollSettingsSchema = z
     pensionEmployerPercent: percent.default(10),
     nhfEnabled: z.boolean().default(false),
     nhfPercent: percent.default(2.5),
+    nhisEnabled: z.boolean().default(false),
+    nhisPercent: percent.default(5),
+    nsitfEnabled: z.boolean().default(false),
+    nsitfPercent: percent.default(1),
+    itfEnabled: z.boolean().default(false),
+    itfPercent: percent.default(1),
   })
   .refine((v) => v.basicPercent + v.housingPercent + v.transportPercent <= 100, {
     message: 'Basic + housing + transport must not exceed 100%',
     path: ['basicPercent'],
   });
 export type PayrollSettingsInput = z.infer<typeof payrollSettingsSchema>;
+
+/** Attestation that the named tax-engine version has been reviewed and approved. */
+export const payrollTaxApprovalSchema = z.object({
+  version: z.string().trim().min(3).max(60),
+});
+export type PayrollTaxApprovalInput = z.infer<typeof payrollTaxApprovalSchema>;
 
 export const payrollRunCreateSchema = z.object({
   year: z.coerce.number().int().min(2000).max(2100),

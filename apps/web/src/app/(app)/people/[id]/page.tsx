@@ -34,6 +34,7 @@ interface EmployeeDetail {
   probationEndsOn?: string | null;
   terminationDate?: string | null;
   grade?: string | null;
+  annualRentDeclared?: string | null;
   emergencyContacts?: { id: string; name: string; relationship: string | null; phone: string; email: string | null }[];
 }
 
@@ -64,7 +65,7 @@ export default function EmployeeProfilePage() {
   const [comp, setComp] = useState<Compensation[] | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [modal, setModal] = useState<'edit' | 'terminate' | 'rehire' | 'comp' | null>(null);
+  const [modal, setModal] = useState<'edit' | 'terminate' | 'rehire' | 'comp' | 'rent' | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -93,7 +94,7 @@ export default function EmployeeProfilePage() {
     }
   }, [id, can]);
 
-  function openModal(kind: 'edit' | 'terminate' | 'rehire' | 'comp') {
+  function openModal(kind: 'edit' | 'terminate' | 'rehire' | 'comp' | 'rent') {
     setModalError('');
     if (kind === 'edit' && emp) {
       setForm({
@@ -110,6 +111,8 @@ export default function EmployeeProfilePage() {
       setForm({ hireDate: new Date().toISOString().slice(0, 10), jobTitle: emp.jobTitle });
     } else if (kind === 'comp') {
       setForm({ effectiveDate: new Date().toISOString().slice(0, 10), baseSalary: '', currency: 'NGN', payFrequency: 'MONTHLY', note: '' });
+    } else if (kind === 'rent' && emp) {
+      setForm({ annualRentDeclared: emp.annualRentDeclared ?? '' });
     }
     setModal(kind);
   }
@@ -137,6 +140,11 @@ export default function EmployeeProfilePage() {
         await api.post(`/employees/${id}/compensation`, body);
         setComp(await api.get<Compensation[]>(`/employees/${id}/compensation`));
         setNotice('Compensation record added.');
+      } else if (modal === 'rent') {
+        await api.put(`/employees/${id}/rent-declaration`, {
+          annualRentDeclared: form.annualRentDeclared ? form.annualRentDeclared : null,
+        });
+        setNotice('Rent declaration updated. Recompute draft payroll runs to apply the relief.');
       }
       setModal(null);
       await load();
@@ -281,6 +289,22 @@ export default function EmployeeProfilePage() {
                 ))}
               </Table>
             )}
+            <div className="mt-3 flex items-center justify-between border-t border-slate-100 pt-3 text-sm">
+              <div>
+                <span className="text-slate-500">Rent declared (2026 rent relief): </span>
+                <span className="font-medium">
+                  {emp.annualRentDeclared ? `NGN ${Number(emp.annualRentDeclared).toLocaleString()} / year` : 'None'}
+                </span>
+                <div className="text-xs text-slate-400">
+                  PAYE relief is 20% of documented annual rent, capped at NGN 500,000 (NTA 2025).
+                </div>
+              </div>
+              {can('compensation.write') && (
+                <Button variant="secondary" onClick={() => openModal('rent')}>
+                  {emp.annualRentDeclared ? 'Update' : 'Declare'}
+                </Button>
+              )}
+            </div>
           </Card>
         )}
 
@@ -391,6 +415,34 @@ export default function EmployeeProfilePage() {
               </Button>
               <Button type="submit" disabled={busy}>
                 {busy ? 'Rehiring…' : 'Rehire'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'rent' && (
+        <Modal title="Rent declaration (NTA 2025 rent relief)" onClose={() => setModal(null)}>
+          <form onSubmit={submitModal} className="space-y-3">
+            {modalError && <Alert kind="error">{modalError}</Alert>}
+            <Alert kind="info">
+              Record the employee&apos;s documented annual rent. From January 2026 PAYE grants a relief of 20% of the
+              declared rent, capped at NGN 500,000 per year. Leave empty to clear the declaration (no relief).
+            </Alert>
+            <Field label="Annual rent (NGN)">
+              <Input
+                value={form.annualRentDeclared ?? ''}
+                onChange={setF('annualRentDeclared')}
+                placeholder="1200000.00"
+                pattern="^\d{1,16}(\.\d{1,2})?$"
+              />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setModal(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy}>
+                {busy ? 'Saving…' : 'Save declaration'}
               </Button>
             </div>
           </form>

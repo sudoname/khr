@@ -21,6 +21,8 @@ interface Payslip {
   pensionEmployee: string;
   pensionEmployer: string;
   nhf: string;
+  nhis: string;
+  rentRelief: string;
   paye: string;
   netPay: string;
 }
@@ -36,7 +38,11 @@ interface RunDetail {
   totalPensionEmployee: string;
   totalPensionEmployer: string;
   totalNhf: string;
+  totalNhis: string;
+  totalRentRelief: string;
   totalNet: string;
+  taxRegime: string | null;
+  engineVersion: string | null;
   submittedAt: string | null;
   approvedAt: string | null;
   paidAt: string | null;
@@ -97,6 +103,11 @@ export default function PayrollRunPage() {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold">{period}</h1>
             <Badge tone={runStatusTone(run.status)}>{run.status.replace('_', ' ')}</Badge>
+            {run.engineVersion && (
+              <span className="font-mono text-xs text-slate-400" title="Tax engine version used for this run">
+                {run.engineVersion}
+              </span>
+            )}
           </div>
           {run.note && run.status === 'DRAFT' && (
             <p className="text-sm text-amber-600">Returned with note: {run.note}</p>
@@ -143,13 +154,15 @@ export default function PayrollRunPage() {
       {error && <Alert kind="error">{error}</Alert>}
       {notice && <Alert kind="success">{notice}</Alert>}
 
-      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-6">
+      <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {[
           ['Gross', run.totalGross],
           ['PAYE', run.totalPaye],
           ['Pension (employee)', run.totalPensionEmployee],
           ['Pension (employer)', run.totalPensionEmployer],
           ['NHF', run.totalNhf],
+          ['NHIS', run.totalNhis],
+          ['Rent relief', run.totalRentRelief],
           ['Net pay', run.totalNet],
         ].map(([label, value]) => (
           <div key={label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -165,7 +178,7 @@ export default function PayrollRunPage() {
             No payslips in this run. Add compensation records for your employees, then recompute.
           </Empty>
         ) : (
-          <Table headers={['Employee', 'Bank', 'Gross', 'PAYE', 'Pension', 'NHF', 'Net pay']}>
+          <Table headers={['Employee', 'Bank', 'Gross', 'PAYE', 'Pension', 'NHF', 'NHIS', 'Net pay']}>
             {run.payslips.map((slip) => (
               <tr key={slip.id}>
                 <td className="px-3 py-2">
@@ -186,6 +199,7 @@ export default function PayrollRunPage() {
                 <td className="px-3 py-2">{formatNgn(slip.paye)}</td>
                 <td className="px-3 py-2">{formatNgn(slip.pensionEmployee)}</td>
                 <td className="px-3 py-2">{formatNgn(slip.nhf)}</td>
+                <td className="px-3 py-2">{formatNgn(slip.nhis)}</td>
                 <td className="px-3 py-2 font-semibold">{formatNgn(slip.netPay)}</td>
               </tr>
             ))}
