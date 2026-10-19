@@ -1,4 +1,4 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import type { OnboardingReviewInput, OnboardingSubmitInput } from '@peopleflow/types';
 import { AppContext } from '../context/app-context';
 import { AuditService } from '../infra/audit.service';
@@ -182,6 +182,13 @@ export class OnboardingService {
   async review(employeeId: string, input: OnboardingReviewInput) {
     const employee = await this.db.employee.findFirst({ where: { id: employeeId, deletedAt: null } });
     if (!employee) throw new NotFoundException('Employee not found');
+    // Four-eyes: a reviewer with employee.write may not decide their own profile.
+    if (employee.userId != null && employee.userId === this.ctx.userIdOrNull) {
+      throw new ForbiddenException({
+        message: 'You cannot review your own onboarding profile',
+        code: 'SELF_APPROVAL_FORBIDDEN',
+      });
+    }
     if (employee.onboardingStatus !== 'SUBMITTED') {
       throw new ConflictException('This profile is not awaiting review');
     }
