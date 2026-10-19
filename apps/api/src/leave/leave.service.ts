@@ -371,6 +371,19 @@ export class LeaveService {
     if (!this.ctx.can('leave.read.all') && !(await this.managesEmployee(request.employee.id)))
       throw new ForbiddenException('You can only decide requests from your reporting chain');
 
+    // Multi-level approval requires distinct approvers: an actor who already
+    // decided an earlier level may not decide this one.
+    const actorUserId = this.ctx.userIdOrNull;
+    const decidedEarlierLevel = request.approvals.some(
+      (a) => a.level < request.currentLevel && a.approverUserId != null && a.approverUserId === actorUserId,
+    );
+    if (decidedEarlierLevel) {
+      throw new ConflictException({
+        message: 'A different approver must decide this level',
+        code: 'APPROVER_CONFLICT',
+      });
+    }
+
     const approval = request.approvals.find((a) => a.level === request.currentLevel);
     if (!approval) throw new ConflictException('Approval step missing for this request');
     const now = new Date();
