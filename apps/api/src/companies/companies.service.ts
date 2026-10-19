@@ -1,5 +1,6 @@
 import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes, createHash } from 'crypto';
+import { canManageRole } from '@peopleflow/types';
 import type { BillingPlanValue, CompanyRole, CompanySector, InviteMemberInput } from '@peopleflow/types';
 import { sniffImageMime } from '../common/image-sniff';
 import { config } from '../config';
@@ -104,8 +105,24 @@ export class CompaniesService {
     }));
   }
 
+  /**
+   * Rank guard for members.manage: an actor may only grant, change or remove
+   * roles strictly below their own rank. COMPANY_ADMIN may also act on other
+   * COMPANY_ADMINs (still subject to the last-admin guard). Prevents e.g.
+   * HR_ADMIN promoting anyone to COMPANY_ADMIN.
+   */
+  private assertCanManageRole(targetRole: CompanyRole) {
+    if (!canManageRole(this.ctx.role, targetRole)) {
+      throw new ForbiddenException({
+        message: `Your role cannot manage members with the ${targetRole} role`,
+        code: 'ROLE_RANK_FORBIDDEN',
+      });
+    }
+  }
+
   async invite(input: InviteMemberInput) {
     const companyId = this.ctx.companyId;
+    this.assertCanManageRole(input.role);
 
     // Employees may optionally be linked at invite time; the link is validated
     // against the active tenant to prevent cross-company linking.
@@ -208,6 +225,9 @@ export class CompaniesService {
     if (membership.userId === this.ctx.userId) {
       throw new ForbiddenException('You cannot change your own role');
     }
+    // Both the member's current role and the granted role must be manageable.
+    this.assertCanManageRole(membership.role);
+    this.assertCanManageRole(role);
     if (membership.role === 'COMPANY_ADMIN' && role !== 'COMPANY_ADMIN') {
       const admins = await db.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
       if (admins <= 1) throw new BadRequestException('A company must keep at least one administrator');
@@ -227,6 +247,7 @@ export class CompaniesService {
     const membership = await db.membership.findFirst({ where: { id: membershipId, companyId } });
     if (!membership) throw new NotFoundException('Member not found');
     if (membership.userId === this.ctx.userId) throw new ForbiddenException('You cannot remove yourself');
+    this.assertCanManageRole(membership.role);
     if (membership.role === 'COMPANY_ADMIN') {
       const admins = await db.membership.count({ where: { companyId, role: 'COMPANY_ADMIN' } });
       if (admins <= 1) throw new BadRequestException('A company must keep at least one administrator');

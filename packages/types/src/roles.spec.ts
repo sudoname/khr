@@ -3,6 +3,8 @@ import {
   MFA_REQUIRED_ROLES,
   PERMISSIONS,
   ROLE_PERMISSIONS,
+  ROLE_RANK,
+  canManageRole,
   roleHas,
 } from './roles';
 import { onboardingSubmitSchema } from './schemas/onboarding';
@@ -79,6 +81,32 @@ describe('role permission matrix', () => {
     expect(roleHas('HR_ADMIN', 'payroll.manage')).toBe(false);
     for (const role of COMPANY_ROLES) {
       expect(roleHas(role, 'payroll.read.self')).toBe(true);
+    }
+  });
+
+  it('ranks every role, with COMPANY_ADMIN strictly on top', () => {
+    for (const role of COMPANY_ROLES) {
+      expect(typeof ROLE_RANK[role]).toBe('number');
+      if (role !== 'COMPANY_ADMIN') {
+        expect(ROLE_RANK[role]).toBeLessThan(ROLE_RANK.COMPANY_ADMIN);
+      }
+    }
+  });
+
+  it('never lets a non-admin manage a role at or above their own rank', () => {
+    for (const actor of COMPANY_ROLES) {
+      if (actor === 'COMPANY_ADMIN') continue;
+      expect(canManageRole(actor, actor)).toBe(false); // own rank
+      expect(canManageRole(actor, 'COMPANY_ADMIN')).toBe(false); // escalation
+    }
+    expect(canManageRole('HR_ADMIN', 'HR_MANAGER')).toBe(true);
+    expect(canManageRole('HR_ADMIN', 'EMPLOYEE')).toBe(true);
+    expect(canManageRole('HR_MANAGER', 'HR_ADMIN')).toBe(false);
+  });
+
+  it('lets COMPANY_ADMIN manage every role including other admins', () => {
+    for (const target of COMPANY_ROLES) {
+      expect(canManageRole('COMPANY_ADMIN', target)).toBe(true);
     }
   });
 

@@ -13,6 +13,29 @@ export type CompanyRole = (typeof COMPANY_ROLES)[number];
 /** Roles that must have MFA enabled before accessing privileged endpoints. */
 export const MFA_REQUIRED_ROLES: CompanyRole[] = ['COMPANY_ADMIN'];
 
+/**
+ * Rank order for membership management. Holders of `members.manage` may only
+ * grant, change or remove roles strictly below their own rank. COMPANY_ADMIN
+ * may additionally act on other COMPANY_ADMINs (still subject to the
+ * last-admin guard). Prevents privilege escalation, e.g. HR_ADMIN promoting
+ * anyone (or themselves via an accomplice) to COMPANY_ADMIN.
+ */
+export const ROLE_RANK: Record<CompanyRole, number> = {
+  COMPANY_ADMIN: 100,
+  HR_ADMIN: 80,
+  HR_MANAGER: 60,
+  PAYROLL_OFFICER: 50,
+  DEPT_MANAGER: 40,
+  RECRUITER: 30,
+  EMPLOYEE: 10,
+};
+
+/** True when `actorRole` is allowed to grant/modify/remove `targetRole`. */
+export function canManageRole(actorRole: CompanyRole, targetRole: CompanyRole): boolean {
+  if (actorRole === 'COMPANY_ADMIN') return true;
+  return ROLE_RANK[targetRole] < ROLE_RANK[actorRole];
+}
+
 export const PERMISSIONS = [
   // company & members
   'company.manage',
