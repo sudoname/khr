@@ -1,12 +1,12 @@
 import 'reflect-metadata';
 import { config } from './config'; // loads .env first
 import { NestFactory } from '@nestjs/core';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
 import { pinoHttp } from 'pino-http';
 import { AppModule } from './app.module';
 import { originAllowed, originCheck } from './common/origin.middleware';
+import { mountDocs } from './docs';
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
@@ -29,17 +29,11 @@ async function bootstrap() {
   });
   app.enableShutdownHooks();
 
-  const swaggerConfig = new DocumentBuilder()
-    .setTitle('PeopleFlow HR API')
-    .setDescription('Multi-tenant HR management platform API')
-    .setVersion('0.1.0')
-    .addCookieAuth(config.sessionCookieName)
-    .build();
-  SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, swaggerConfig));
+  const docsMounted = mountDocs(app);
 
   await app.listen(config.port);
   // eslint-disable-next-line no-console
-  console.log(`PeopleFlow API listening on http://localhost:${config.port} (docs at /docs)`);
+  console.log(`PeopleFlow API listening on http://localhost:${config.port}${docsMounted ? ' (docs at /docs)' : ''}`);
 }
 
 bootstrap();
