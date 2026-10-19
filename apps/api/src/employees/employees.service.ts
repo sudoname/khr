@@ -463,7 +463,9 @@ export class EmployeesService {
     }
 
     await this.audit.log('employee.updated', { entity: 'Employee', entityId: id, meta: { fields: Object.keys(input) } });
-    return employee;
+    // Write responses must redact exactly like the read path: employee.write
+    // does not imply compensation.read.
+    return this.stripBankDetails(employee, id);
   }
 
   async terminate(id: string, input: { terminationDate: string; reason: string }) {
@@ -526,7 +528,7 @@ export class EmployeesService {
       entityId: id,
       meta: { reason: input.reason, accessRevoked: Boolean(membership) },
     });
-    return employee;
+    return this.stripBankDetails(employee, id);
   }
 
   async rehire(id: string, input: { hireDate: string; jobTitle: string; departmentId?: string; managerId?: string }) {
@@ -561,7 +563,7 @@ export class EmployeesService {
       },
     });
     await this.audit.log('employee.rehired', { entity: 'Employee', entityId: id });
-    return employee;
+    return this.stripBankDetails(employee, id);
   }
 
   async history(id: string) {
