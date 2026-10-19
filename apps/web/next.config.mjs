@@ -23,7 +23,17 @@ const nextConfig = {
   poweredByHeader: false,
   transpilePackages: ['@peopleflow/types'],
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }];
+    return [
+      { source: '/:path*', headers: securityHeaders },
+      {
+        // Authenticated (app) route group: pages render tenant data and must
+        // not land in any shared or disk cache. Marketing/auth pages and
+        // /_next/static keep Next's default caching.
+        source:
+          '/:section(account|attendance|dashboard|documents|leave|onboarding|org|payroll|people|performance|platform|profile|recruitment|reports|settings|training)/:path*',
+        headers: [{ key: 'Cache-Control', value: 'private, no-store' }],
+      },
+    ];
   },
   async rewrites() {
     // Proxy API calls through the web origin so the session cookie is

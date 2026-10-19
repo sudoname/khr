@@ -14,6 +14,10 @@ export function securityHeaders(_req: Request, res: Response, next: NextFunction
   res.setHeader('Content-Security-Policy', "frame-ancestors 'none'");
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  // Default: API responses carry tenant data and must never be cached by
+  // browsers or intermediaries. Routes that stream cacheable assets (logos,
+  // photos) run after this middleware and override with their own value.
+  res.setHeader('Cache-Control', 'private, no-store');
   if (config.isProd) {
     // Only meaningful over TLS; omitted in dev/test to avoid pinning localhost.
     res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
