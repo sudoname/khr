@@ -6,7 +6,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { stringify } from 'csv-stringify/sync';
+import { authenticator } from 'otplib';
 import { Prisma } from '@peopleflow/database';
+import { COMPANY_ROLES, roleHas } from '@peopleflow/types';
 import type { PayrollRunCreateInput, PayrollSettingsInput, PayslipAdjustInput } from '@peopleflow/types';
 import { csvSafe } from '../common/csv';
 import { config } from '../config';
@@ -419,16 +421,62 @@ export class PayrollService {
    * run must not be the one to approve it. Enforced against user ids, not
    * roles, so a COMPANY_ADMIN holding both payroll permissions still cannot
    * finalize their own run.
+   *
+   * Break-glass (decision D2): when the approver is the ONLY member of the
+   * company holding `payroll.approve`, no second person could ever review the
+   * run and the hard rule would deadlock payroll. Self-approval is then
+   * allowed behind a fresh TOTP check, and the override is written to the
+   * audit trail. Returns true when the override path was used.
    */
-  private assertSeparationOfDuties(run: { createdById: string | null; submittedById: string | null }) {
+  private async assertSeparationOfDuties(
+    run: { id: string; createdById: string | null; submittedById: string | null },
+    mfaCode?: string,
+  ): Promise<boolean> {
     const approverId = this.ctx.userIdOrNull;
-    if (approverId && (approverId === run.createdById || approverId === run.submittedById)) {
+    if (!approverId || (approverId !== run.createdById && approverId !== run.submittedById)) {
+      return false;
+    }
+
+    const approverRoles = COMPANY_ROLES.filter((role) => roleHas(role, 'payroll.approve'));
+    const otherApprovers = await this.db.membership.count({
+      where: { role: { in: approverRoles }, userId: { not: approverId } },
+    });
+    if (otherApprovers > 0) {
       throw new ForbiddenException({
         message:
           'Segregation of duties: the user who prepared or submitted a payroll run cannot approve it. Another member with payroll approval permission must review it.',
         code: 'PAYROLL_SOD_VIOLATION',
       });
     }
+
+    const user = await this.prisma.user.findUnique({ where: { id: approverId } });
+    if (!user?.mfaEnabled || !user.mfaSecret) {
+      throw new ForbiddenException({
+        message:
+          'You are the only member who can approve payroll, so self-approval needs two-factor authentication. Enroll MFA on your account, then retry with a current authenticator code.',
+        code: 'SOD_OVERRIDE_MFA_REQUIRED',
+      });
+    }
+    if (!mfaCode) {
+      throw new ForbiddenException({
+        message:
+          'You are the only member who can approve payroll. Confirm self-approval with a current authenticator code.',
+        code: 'SOD_OVERRIDE_MFA_REQUIRED',
+      });
+    }
+    if (!authenticator.verify({ token: mfaCode.replace(/\s+/g, ''), secret: user.mfaSecret })) {
+      throw new ForbiddenException({
+        message: 'Invalid authenticator code.',
+        code: 'SOD_OVERRIDE_MFA_INVALID',
+      });
+    }
+
+    await this.audit.log('payroll.sod_override', {
+      entity: 'PayrollRun',
+      entityId: run.id,
+      meta: { runId: run.id, reason: 'sole-approver' },
+    });
+    return true;
   }
 
   /**
@@ -498,10 +546,10 @@ export class PayrollService {
     );
   }
 
-  async approve(id: string) {
+  async approve(id: string, mfaCode?: string) {
     const run = await this.db.payrollRun.findFirst({ where: { id } });
     if (!run) throw new NotFoundException('Payroll run not found');
-    this.assertSeparationOfDuties(run);
+    const sodOverride = await this.assertSeparationOfDuties(run, mfaCode);
     await this.assertTaxRulesApproved(run);
     const { payslips } = await this.assertRunReconciles(id, run as unknown as Record<string, unknown>);
     return this.transition(
@@ -509,7 +557,7 @@ export class PayrollService {
       ['PENDING_APPROVAL'],
       { status: 'APPROVED', approvedById: this.ctx.userIdOrNull, approvedAt: new Date() },
       'payroll.run_approved',
-      { payslips, totalNet: run.totalNet.toFixed(2), reconciled: true },
+      { payslips, totalNet: run.totalNet.toFixed(2), reconciled: true, ...(sodOverride ? { sodOverride: 'sole-approver' } : {}) },
     );
   }
 

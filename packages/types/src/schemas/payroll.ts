@@ -41,6 +41,12 @@ export const payrollRejectSchema = z.object({
   note: z.string().trim().min(3).max(1000),
 });
 
+/** TOTP code is only required for the sole-approver self-approval override. */
+export const payrollApproveSchema = z.object({
+  mfaCode: z.string().trim().min(6).max(64).optional(),
+});
+export type PayrollApproveInput = z.infer<typeof payrollApproveSchema>;
+
 /** One-off per-payslip adjustments, editable while the run is still DRAFT. */
 export const payslipAdjustSchema = z.object({
   bonus: z.coerce.number().min(0).max(1_000_000_000).default(0),

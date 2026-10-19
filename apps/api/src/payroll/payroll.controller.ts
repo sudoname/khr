@@ -13,6 +13,7 @@ import {
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import {
+  payrollApproveSchema,
   payrollRejectSchema,
   payrollRunCreateSchema,
   payrollSettingsSchema,
@@ -20,6 +21,7 @@ import {
   payslipAdjustSchema,
 } from '@peopleflow/types';
 import type {
+  PayrollApproveInput,
   PayrollRunCreateInput,
   PayrollSettingsInput,
   PayrollTaxApprovalInput,
@@ -128,8 +130,8 @@ export class PayrollController {
 
   @RequirePermission('payroll.approve')
   @Post('runs/:id/approve')
-  approve(@Param('id') id: string) {
-    return this.payroll.approve(id);
+  approve(@Param('id') id: string, @Body(new ZodPipe(payrollApproveSchema)) body: PayrollApproveInput) {
+    return this.payroll.approve(id, body.mfaCode);
   }
 
   @RequirePermission('payroll.approve')
