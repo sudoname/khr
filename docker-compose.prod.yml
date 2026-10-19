@@ -51,10 +51,30 @@ services:
     ports:
       - "127.0.0.1:8025:8025"
 
+  # One-shot migration runner (exits after `prisma migrate deploy`). It is the
+  # ONLY service that holds the owner (DDL-capable, RLS-exempt) database
+  # credentials; the long-lived api/worker containers never see them and wait
+  # for this to complete successfully before starting.
+  migrate:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    image: khr-api
+    restart: "no"
+    mem_limit: 512m
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://peopleflow:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/peopleflow
+    command: ["pnpm", "--filter", "@peopleflow/database", "exec", "prisma", "migrate", "deploy"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   api:
     build:
       context: .
       dockerfile: infrastructure/docker/api.Dockerfile
+    image: khr-api
     restart: unless-stopped
     mem_limit: 768m
     environment:
@@ -64,8 +84,6 @@ services:
       # applies (see migration rls_enforcement_and_employee_seq). One-time
       # setup: ALTER ROLE khr_app PASSWORD '<APP_DB_PASSWORD>';
       DATABASE_URL: postgresql://khr_app:${APP_DB_PASSWORD:?set APP_DB_PASSWORD in .env}@postgres:5432/peopleflow
-      # Migrations keep running as the owner (RLS-exempt, full DDL rights).
-      MIGRATE_DATABASE_URL: postgresql://peopleflow:${POSTGRES_PASSWORD}@postgres:5432/peopleflow
       REDIS_URL: redis://redis:6379
       WEB_ORIGIN: ${WEB_ORIGIN:-https://khr.ng}
       # Per-company workspace subdomains (acme.khr.ng). BASE_DOMAIN allows
@@ -89,6 +107,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   worker:
     build:
@@ -110,6 +130,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
 
   web:
     build:

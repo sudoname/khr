@@ -1,9 +1,11 @@
 # PeopleFlow API (NestJS)
 # Build from the repo root:  docker compose --profile apps up --build api
 #
-# Local/dev-oriented image: the full workspace is installed so the Prisma CLI
-# is available for `migrate deploy` on boot. For production, set
-# NODE_ENV=production and a strong SESSION_SECRET at runtime.
+# The full workspace is installed so the Prisma CLI is available: the same
+# image doubles as the one-shot `migrate` compose service (command override).
+# The API process itself never runs migrations and never sees owner DB
+# credentials. For production, set NODE_ENV=production and a strong
+# SESSION_SECRET at runtime.
 FROM node:20-alpine
 
 RUN corepack enable && apk add --no-cache openssl
@@ -25,6 +27,7 @@ RUN pnpm --filter @peopleflow/api... run build
 
 EXPOSE 4000
 
-# Apply pending migrations (as the owner role when MIGRATE_DATABASE_URL is
-# set — the runtime khr_app role has no DDL rights), then start the API.
-CMD ["sh", "-c", "DATABASE_URL=\"${MIGRATE_DATABASE_URL:-$DATABASE_URL}\" pnpm --filter @peopleflow/database exec prisma migrate deploy && node apps/api/dist/main.js"]
+# Migrations are applied by the dedicated one-shot `migrate` compose service
+# (same image, prisma command override, owner credentials); the API starts
+# directly and connects as the unprivileged khr_app role.
+CMD ["node", "apps/api/dist/main.js"]
