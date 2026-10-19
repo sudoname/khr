@@ -115,8 +115,10 @@ export class PerformanceService {
   }
 
   async updateGoal(id: string, input: GoalUpdateInput) {
-    const goal = await this.db.goal.findFirst({ where: { id } });
+    const goal = await this.db.goal.findFirst({ where: { id }, include: { cycle: { select: { status: true } } } });
     if (!goal) throw new NotFoundException('Goal not found');
+    // Mirrors createGoal: a closed cycle is a historical record.
+    if (goal.cycle.status === 'CLOSED') throw new ConflictException('This cycle is closed');
     if (goal.employeeId !== this.ctx.employeeIdOrNull && !this.ctx.can('performance.manage'))
       throw new ForbiddenException('You can only update your own goals');
 
