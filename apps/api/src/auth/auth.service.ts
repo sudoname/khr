@@ -86,12 +86,14 @@ export class AuthService {
     }
 
     const existing = await this.prisma.user.findUnique({ where: { email: input.email } });
+    // Hash before branching: argon2 dominates response time, so skipping it on
+    // the exists branch would be an email-enumeration timing oracle even though
+    // the response body is identical.
+    const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
     if (existing) {
       // Do not reveal registration state to the caller.
       return { message: 'If this email is available, your workspace has been created. Check your inbox.' };
     }
-
-    const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
     let slug = input.slug ?? slugify(input.companyName);
     if (!input.slug) {
       const baseSlug = slug;
