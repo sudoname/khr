@@ -1,9 +1,12 @@
 # PeopleFlow web (Next.js)
 # Build from the repo root:  docker compose --profile apps up --build web
 #
-# API_URL is read at `next start` time by the rewrite in next.config.mjs, so
-# the same image works against any API host.
-FROM node:20-alpine
+# Two stages: the builder has the full workspace; the runtime ships only the
+# Next standalone trace (no pnpm, no full node_modules) and runs unprivileged
+# so the container can be started read-only.
+#
+# Pinned minor: rebuilds must not surprise-upgrade the Node runtime.
+FROM node:20.19-alpine AS build
 
 RUN corepack enable
 WORKDIR /app
@@ -31,6 +34,22 @@ ENV NEXT_PUBLIC_BASE_DOMAIN=$NEXT_PUBLIC_BASE_DOMAIN
 
 RUN pnpm --filter @peopleflow/web... run build
 
-ENV NODE_ENV=production
+# ───────── runtime ─────────
+FROM node:20.19-alpine
+
+WORKDIR /app
+ENV NODE_ENV=production HOSTNAME=0.0.0.0 PORT=3000
+
+# The monorepo standalone trace puts the server at apps/web/server.js with a
+# pruned node_modules at the trace root. Static assets are not traced and
+# must be copied alongside.
+COPY --from=build --chown=node:node /app/apps/web/.next/standalone ./
+COPY --from=build --chown=node:node /app/apps/web/.next/static ./apps/web/.next/static
+
+USER node
 EXPOSE 3000
-CMD ["pnpm", "--filter", "@peopleflow/web", "start"]
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3000/ || exit 1
+
+CMD ["node", "apps/web/server.js"]

@@ -21,6 +21,9 @@ const securityHeaders = [
 const nextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Self-contained server bundle so the production image ships only the
+  // traced files (no pnpm, no full node_modules) and can run read-only.
+  output: 'standalone',
   transpilePackages: ['@peopleflow/types'],
   async headers() {
     return [

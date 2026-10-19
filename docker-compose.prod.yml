@@ -62,6 +62,9 @@ services:
     image: khr-api
     restart: "no"
     mem_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://peopleflow:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@postgres:5432/peopleflow
@@ -77,6 +80,12 @@ services:
     image: khr-api
     restart: unless-stopped
     mem_limit: 768m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
     environment:
       NODE_ENV: production
       API_PORT: 4000
@@ -116,6 +125,12 @@ services:
       dockerfile: infrastructure/docker/worker.Dockerfile
     restart: unless-stopped
     mem_limit: 512m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      - /tmp
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://khr_app:${APP_DB_PASSWORD}@postgres:5432/peopleflow
@@ -142,6 +157,14 @@ services:
         NEXT_PUBLIC_BASE_DOMAIN: ${BASE_DOMAIN:-khr.ng}
     restart: unless-stopped
     mem_limit: 1g
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    read_only: true
+    tmpfs:
+      # Next writes its runtime caches (image optimizer, fetch cache) here.
+      - /tmp
+      - /app/apps/web/.next/cache
     environment:
       NODE_ENV: production
       API_URL: http://api:4000

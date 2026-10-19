@@ -1,0 +1,26 @@
+# Keep the Docker build context small and deterministic: dependencies are
+# installed from the lockfile inside the image, build output is produced
+# there too. Also prevents host node_modules (pnpm symlinks) from breaking
+# the context tar on Windows.
+.git
+.github
+.claude
+.turbo
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+
+# Local environment and secrets must never enter an image layer.
+.env
+.env.*
+!.env.example
+!.env.prod.example
+
+# Unrelated to the images.
+docs
+hr-platform
+infrastructure/nginx
+infrastructure/backup
+README.md
