@@ -374,36 +374,82 @@ export class LeaveService {
     const approval = request.approvals.find((a) => a.level === request.currentLevel);
     if (!approval) throw new ConflictException('Approval step missing for this request');
     const now = new Date();
+    const companyId = this.ctx.companyId;
+    const totalLevels = request.approvals.length;
+    const isFinal = request.currentLevel >= totalLevels;
+    const requested = Number(request.totalDays);
 
-    await this.db.leaveApproval.update({
-      where: { id: approval.id },
-      data: { decision: input.decision, note: input.note || null, approverUserId: this.ctx.userIdOrNull, decidedAt: now },
+    // The balance row (created lazily) must exist before the transaction so
+    // the conditional deduction below can target it by id.
+    const balance =
+      isFinal && input.decision === 'APPROVED' && request.leaveType.paid
+        ? await this.ensureBalance(request.employee.id, request.leaveType.id, request.startDate.getUTCFullYear())
+        : null;
+
+    // All state transitions are conditional updateMany (count === 0 → 409),
+    // executed in one tenant-GUC transaction so a concurrent decide/cancel
+    // can never double-decide a step or double-deduct the balance.
+    await this.prisma.$transaction(async (tx) => {
+      // Fail-closed RLS: multi-statement transaction needs the tenant GUC.
+      await tx.$executeRaw`SELECT set_config('app.company_id', ${companyId}, TRUE)`;
+
+      // Claim this approval step: only one decider can win it.
+      const claimed = await tx.leaveApproval.updateMany({
+        where: { id: approval.id, decision: null },
+        data: { decision: input.decision, note: input.note || null, approverUserId: this.ctx.userIdOrNull, decidedAt: now },
+      });
+      if (claimed.count === 0) throw new ConflictException('This request has already been decided');
+
+      if (input.decision === 'REJECTED') {
+        const transitioned = await tx.leaveRequest.updateMany({
+          where: { id, status: 'PENDING' },
+          data: { status: 'REJECTED', decidedAt: now },
+        });
+        if (transitioned.count === 0) throw new ConflictException('This request has already been decided');
+        return;
+      }
+
+      if (!isFinal) {
+        const advanced = await tx.leaveRequest.updateMany({
+          where: { id, status: 'PENDING', currentLevel: request.currentLevel },
+          data: { currentLevel: request.currentLevel + 1 },
+        });
+        if (advanced.count === 0) throw new ConflictException('This request has already been decided');
+        return;
+      }
+
+      // Final approval: flip the status and deduct the balance together.
+      const transitioned = await tx.leaveRequest.updateMany({
+        where: { id, status: 'PENDING', currentLevel: request.currentLevel },
+        data: { status: 'APPROVED', decidedAt: now },
+      });
+      if (transitioned.count === 0) throw new ConflictException('This request has already been decided');
+
+      if (balance) {
+        // Overdraw guard: deduct only while usedDays + requested stays within
+        // the entitlement. A losing concurrent approval sees count 0.
+        const available =
+          Number(balance.entitledDays) + Number(balance.carriedOverDays) + Number(balance.adjustmentDays);
+        const deducted = await tx.leaveBalance.updateMany({
+          where: { id: balance.id, usedDays: { lte: available - requested } },
+          data: { usedDays: { increment: requested } },
+        });
+        if (deducted.count === 0) {
+          throw new ConflictException({
+            message: `Insufficient leave balance to approve ${requested} day(s)`,
+            code: 'INSUFFICIENT_BALANCE',
+          });
+        }
+      }
     });
 
     if (input.decision === 'REJECTED') {
-      await this.db.leaveRequest.update({ where: { id }, data: { status: 'REJECTED', decidedAt: now } });
       await this.audit.log('leave.rejected', { entity: 'LeaveRequest', entityId: id, meta: { level: request.currentLevel } });
-      return this.getRequest(id);
-    }
-
-    const totalLevels = request.approvals.length;
-    if (request.currentLevel < totalLevels) {
-      await this.db.leaveRequest.update({ where: { id }, data: { currentLevel: request.currentLevel + 1 } });
+    } else if (!isFinal) {
       await this.audit.log('leave.approved_level', { entity: 'LeaveRequest', entityId: id, meta: { level: request.currentLevel } });
-      return this.getRequest(id);
+    } else {
+      await this.audit.log('leave.approved', { entity: 'LeaveRequest', entityId: id, meta: { totalDays: requested } });
     }
-
-    // Final approval: mark approved and deduct the balance atomically.
-    await this.db.leaveRequest.update({ where: { id }, data: { status: 'APPROVED', decidedAt: now } });
-    if (request.leaveType.paid) {
-      const year = request.startDate.getUTCFullYear();
-      const balance = await this.ensureBalance(request.employee.id, request.leaveType.id, year);
-      await this.db.leaveBalance.update({
-        where: { id: balance.id },
-        data: { usedDays: { increment: Number(request.totalDays) } },
-      });
-    }
-    await this.audit.log('leave.approved', { entity: 'LeaveRequest', entityId: id, meta: { totalDays: Number(request.totalDays) } });
     return this.getRequest(id);
   }
 
@@ -414,16 +460,42 @@ export class LeaveService {
     if (request.status !== 'PENDING' && request.status !== 'APPROVED')
       throw new ConflictException('Only pending or approved requests can be cancelled');
 
-    const wasApproved = request.status === 'APPROVED';
-    await this.db.leaveRequest.update({ where: { id }, data: { status: 'CANCELLED', decidedAt: new Date() } });
-    if (wasApproved && request.leaveType.paid) {
-      const year = request.startDate.getUTCFullYear();
-      const balance = await this.ensureBalance(request.employee.id, request.leaveType.id, year);
-      await this.db.leaveBalance.update({
-        where: { id: balance.id },
-        data: { usedDays: { decrement: Number(request.totalDays) } },
+    // Atomic transition: the refund is issued only by the one caller whose
+    // update actually moved the request out of APPROVED, so concurrent
+    // cancels can never double-credit the balance.
+    const companyId = this.ctx.companyId;
+    let wasApproved = false;
+    await this.prisma.$transaction(async (tx) => {
+      // Fail-closed RLS: multi-statement transaction needs the tenant GUC.
+      await tx.$executeRaw`SELECT set_config('app.company_id', ${companyId}, TRUE)`;
+      const now = new Date();
+      const fromApproved = await tx.leaveRequest.updateMany({
+        where: { id, status: 'APPROVED' },
+        data: { status: 'CANCELLED', decidedAt: now },
       });
-    }
+      wasApproved = fromApproved.count === 1;
+      if (!wasApproved) {
+        const fromPending = await tx.leaveRequest.updateMany({
+          where: { id, status: 'PENDING' },
+          data: { status: 'CANCELLED', decidedAt: now },
+        });
+        if (fromPending.count === 0)
+          throw new ConflictException('Only pending or approved requests can be cancelled');
+      }
+      if (wasApproved && request.leaveType.paid) {
+        // The balance row must exist: final approval deducted from it.
+        const year = request.startDate.getUTCFullYear();
+        const balance = await tx.leaveBalance.findFirst({
+          where: { employeeId: request.employee.id, leaveTypeId: request.leaveType.id, year },
+        });
+        if (balance) {
+          await tx.leaveBalance.update({
+            where: { id: balance.id },
+            data: { usedDays: { decrement: Number(request.totalDays) } },
+          });
+        }
+      }
+    });
     await this.audit.log('leave.cancelled', { entity: 'LeaveRequest', entityId: id, meta: { wasApproved } });
     return this.getRequest(id);
   }
