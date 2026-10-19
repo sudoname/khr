@@ -6,7 +6,16 @@ export const courseCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000).optional().or(z.literal('')),
   provider: z.string().trim().max(120).optional().or(z.literal('')),
-  url: z.string().trim().url().max(300).optional().or(z.literal('')),
+  // http(s) only: a bare .url() would also accept javascript:/data: links,
+  // which the web app renders as clickable anchors.
+  url: z
+    .string()
+    .trim()
+    .url()
+    .max(300)
+    .refine((u) => /^https?:\/\//i.test(u), 'Course URL must start with http:// or https://')
+    .optional()
+    .or(z.literal('')),
   durationHours: z.coerce.number().min(0).max(1000).optional(),
   mandatory: z.boolean().default(false),
 });

@@ -60,12 +60,27 @@ export class AuthService {
     return token;
   }
 
-  private async consumeToken(token: string, type: SecurityTokenType) {
+  /** Validates a token without consuming it. */
+  private async peekToken(token: string, type: SecurityTokenType) {
     const row = await this.prisma.securityToken.findUnique({ where: { tokenHash: sha256(token) } });
     if (!row || row.type !== type || row.usedAt || row.expiresAt < new Date()) {
       throw new BadRequestException('Invalid or expired token');
     }
-    await this.prisma.securityToken.update({ where: { id: row.id }, data: { usedAt: new Date() } });
+    return row;
+  }
+
+  /** Atomically claims a token: of N concurrent callers, exactly one wins. */
+  private async markTokenUsed(id: string) {
+    const res = await this.prisma.securityToken.updateMany({
+      where: { id, usedAt: null },
+      data: { usedAt: new Date() },
+    });
+    if (res.count === 0) throw new BadRequestException('Invalid or expired token');
+  }
+
+  private async consumeToken(token: string, type: SecurityTokenType) {
+    const row = await this.peekToken(token, type);
+    await this.markTokenUsed(row.id);
     return row;
   }
 
@@ -196,12 +211,16 @@ export class AuthService {
 
   async completeMfaLogin(mfaToken: string, code: string, ip?: string, userAgent?: string, workspaceSlug?: string) {
     await this.rateLimit.hit(`mfa:ip:${ip ?? 'unknown'}`, 20, 900);
-    const row = await this.consumeToken(mfaToken, 'MFA_CHALLENGE');
+    // Verify the code BEFORE consuming the challenge token: a typo must not
+    // burn the challenge and force a full re-login. Rate limiting above still
+    // bounds guessing; the token is only claimed (atomically) on success.
+    const row = await this.peekToken(mfaToken, 'MFA_CHALLENGE');
     const user = await this.prisma.user.findUniqueOrThrow({ where: { id: row.userId } });
     if (!this.checkTotpOrRecovery(user.mfaSecret, user.mfaRecoveryCodes, code)) {
       await this.audit.log('auth.mfa_failed', { userId: user.id, companyId: null });
       throw new UnauthorizedException('Invalid authentication code');
     }
+    await this.markTokenUsed(row.id);
     if (user.mfaRecoveryCodes.includes(sha256(code.replace(/\s+/g, '').toLowerCase()))) {
       await this.prisma.user.update({
         where: { id: user.id },

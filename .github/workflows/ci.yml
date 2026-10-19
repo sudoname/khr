@@ -59,6 +59,13 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Non-blocking for now: as of 2026-10 this reports 25 high + 2 critical
+      # findings (next, multer, nodemailer, js-yaml, lodash) whose fixes need
+      # framework upgrades. Flip to blocking once those are upgraded.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level=high
+        continue-on-error: true
+
       - name: Generate Prisma client
         run: pnpm db:generate
 
@@ -76,3 +83,20 @@ jobs:
 
       - name: Build all apps
         run: pnpm build
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Build-only (no push): catches Dockerfile/context breakage before it
+      # reaches the server's `docker compose up --build`.
+      - name: Build API image
+        run: docker build -f infrastructure/docker/api.Dockerfile -t khr-api-ci .
+
+      - name: Build worker image
+        run: docker build -f infrastructure/docker/worker.Dockerfile -t khr-worker-ci .
+
+      - name: Build web image
+        run: docker build -f infrastructure/docker/web.Dockerfile -t khr-web-ci .

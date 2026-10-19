@@ -202,6 +202,13 @@ export class AttendanceService {
     const { day: todayKey } = this.localParts(new Date(), tz);
     if (input.day > todayKey) throw new BadRequestException('Cannot request a correction for a future day');
 
+    // The proposed clock-in must land on the day being corrected (in the
+    // company timezone). Otherwise review() computes lateness from the wrong
+    // weekday and the record's day bucket disagrees with its timestamps.
+    const { day: proposedDay } = this.localParts(clockInAt, tz);
+    if (proposedDay !== input.day)
+      throw new BadRequestException('Proposed clock-in must fall on the day being corrected');
+
     const pending = await this.db.attendanceCorrection.findFirst({
       where: { employeeId, day, status: 'PENDING' },
     });
