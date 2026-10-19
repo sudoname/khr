@@ -82,10 +82,10 @@ describe('role permission matrix', () => {
     }
   });
 
-  it('requires MFA for privileged roles only', () => {
-    expect(MFA_REQUIRED_ROLES).toEqual(
-      expect.arrayContaining(['COMPANY_ADMIN', 'HR_ADMIN', 'PAYROLL_OFFICER']),
-    );
+  it('requires MFA for company admins only', () => {
+    expect(MFA_REQUIRED_ROLES).toEqual(['COMPANY_ADMIN']);
+    expect(MFA_REQUIRED_ROLES).not.toContain('HR_ADMIN');
+    expect(MFA_REQUIRED_ROLES).not.toContain('PAYROLL_OFFICER');
     expect(MFA_REQUIRED_ROLES).not.toContain('EMPLOYEE');
     expect(MFA_REQUIRED_ROLES).not.toContain('DEPT_MANAGER');
   });

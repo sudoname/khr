@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { randomBytes } from 'crypto';
 import type { CookieOptions } from 'express';
 import { config } from '../config';
-import { hashSessionToken } from '../common/guards/auth.guard';
+import { hashSessionToken, sessionCookieOptions } from '../common/guards/auth.guard';
 import { PrismaService } from '../infra/prisma.service';
 
 @Injectable()
@@ -10,14 +10,7 @@ export class SessionService {
   constructor(private readonly prisma: PrismaService) {}
 
   cookieOptions(expires?: Date): CookieOptions {
-    return {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: config.secureCookies,
-      path: '/',
-      expires,
-      ...(config.cookieDomain ? { domain: config.cookieDomain } : {}),
-    };
+    return sessionCookieOptions(expires);
   }
 
   async create(userId: string, opts: { activeCompanyId?: string | null; ip?: string; userAgent?: string }) {

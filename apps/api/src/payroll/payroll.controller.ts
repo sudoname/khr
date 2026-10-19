@@ -1,4 +1,15 @@
-import { Body, Controller, Get, Param, Post, Put, Query, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Patch,
+  Post,
+  Put,
+  Query,
+  Res,
+  StreamableFile,
+} from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import {
@@ -6,11 +17,13 @@ import {
   payrollRunCreateSchema,
   payrollSettingsSchema,
   payrollTaxApprovalSchema,
+  payslipAdjustSchema,
 } from '@peopleflow/types';
 import type {
   PayrollRunCreateInput,
   PayrollSettingsInput,
   PayrollTaxApprovalInput,
+  PayslipAdjustInput,
 } from '@peopleflow/types';
 import { RequirePermission } from '../common/decorators';
 import { ZodPipe } from '../common/zod.pipe';
@@ -60,6 +73,17 @@ export class PayrollController {
     return this.payroll.myPayslips();
   }
 
+  /** Itemized PDF payslip with YTD column. Service enforces slip ownership. */
+  @RequirePermission('payroll.read.self')
+  @Get('payslips/:id/pdf')
+  async payslipPdf(@Param('id') id: string) {
+    const { pdf, filename } = await this.payroll.payslipPdf(id);
+    return new StreamableFile(pdf, {
+      type: 'application/pdf',
+      disposition: `attachment; filename="${filename}"`,
+    });
+  }
+
   // ───────── runs ─────────
 
   @RequirePermission('payroll.manage')
@@ -84,6 +108,16 @@ export class PayrollController {
   @Post('runs/:id/recompute')
   recompute(@Param('id') id: string) {
     return this.payroll.compute(id);
+  }
+
+  @RequirePermission('payroll.manage')
+  @Patch('runs/:id/payslips/:payslipId')
+  adjustPayslip(
+    @Param('id') id: string,
+    @Param('payslipId') payslipId: string,
+    @Body(new ZodPipe(payslipAdjustSchema)) body: PayslipAdjustInput,
+  ) {
+    return this.payroll.adjustPayslip(id, payslipId, body);
   }
 
   @RequirePermission('payroll.manage')

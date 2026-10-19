@@ -37,7 +37,7 @@ Multi-company users: `Membership(userId, companyId, role)` with a unique `[userI
 - **Passwords**: Argon2id. Login uses a dummy-hash comparison when the user doesn't exist (timing-safe, enumeration-resistant).
 - **Sessions**: opaque 32-byte tokens; only a SHA-256 hash is stored (`Session.tokenHash`). Cookie is `httpOnly`, `SameSite=Lax`, `Secure` when `SECURE_COOKIES=1`. Sessions are listable and revocable per device.
 - **Email verification** is required before first login. Verify / reset / invite / MFA-challenge flows all use single-use, expiring, SHA-256-hashed `SecurityToken` rows.
-- **MFA**: TOTP (otplib) plus 8 one-time recovery codes (hashed at rest). Enforced at the guard for privileged roles (`MFA_REQUIRED_ROLES`) when `enforceMfaForPrivileged` is on — a privileged user without MFA gets `403 { code: 'MFA_SETUP_REQUIRED' }` and can only reach the MFA-setup endpoints.
+- **MFA**: TOTP (otplib) plus 8 one-time recovery codes (hashed at rest). Enforced at the guard for company admins (`MFA_REQUIRED_ROLES = ['COMPANY_ADMIN']`) when `enforceMfaForPrivileged` is on — a privileged user without MFA gets `403 { code: 'MFA_SETUP_REQUIRED' }` and can only reach the MFA-setup endpoints.
 - **Rate limiting**: Redis fixed-window counters on login (per-IP and per-email), register, and forgot-password.
 - **CSRF**: `SameSite=Lax` cookie + an Origin-check middleware that rejects mutating requests from non-allowlisted origins.
 

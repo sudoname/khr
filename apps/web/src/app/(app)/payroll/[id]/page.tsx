@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Alert, Badge, Button, Card, Empty, Modal, Spinner, Table } from '@/components/ui';
+import { Alert, Badge, Button, Card, Empty, Field, Input, Modal, Spinner, Table } from '@/components/ui';
 import { MONTHS, formatNgn, runStatusTone } from '../format';
 
 interface Payslip {
@@ -24,6 +24,9 @@ interface Payslip {
   nhis: string;
   rentRelief: string;
   paye: string;
+  bonus: string;
+  otherDeductions: string;
+  adjustmentNote: string | null;
   netPay: string;
 }
 
@@ -34,6 +37,8 @@ interface RunDetail {
   status: 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'PAID';
   note: string | null;
   totalGross: string;
+  totalBonus: string;
+  totalOtherDeductions: string;
   totalPaye: string;
   totalPensionEmployee: string;
   totalPensionEmployer: string;
@@ -59,6 +64,42 @@ export default function PayrollRunPage() {
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [rejectNote, setRejectNote] = useState('');
+
+  // one-off bonus / deduction adjustments (DRAFT runs only)
+  const [adjusting, setAdjusting] = useState<Payslip | null>(null);
+  const [adjustForm, setAdjustForm] = useState({ bonus: '0', otherDeductions: '0', adjustmentNote: '' });
+  const [adjustBusy, setAdjustBusy] = useState(false);
+
+  function openAdjust(slip: Payslip) {
+    setAdjustForm({
+      bonus: String(Number(slip.bonus) || 0),
+      otherDeductions: String(Number(slip.otherDeductions) || 0),
+      adjustmentNote: slip.adjustmentNote ?? '',
+    });
+    setAdjusting(slip);
+  }
+
+  async function saveAdjust(e: React.FormEvent) {
+    e.preventDefault();
+    if (!adjusting) return;
+    setError('');
+    setNotice('');
+    setAdjustBusy(true);
+    try {
+      await api.patch(`/payroll/runs/${params.id}/payslips/${adjusting.id}`, {
+        bonus: Number(adjustForm.bonus) || 0,
+        otherDeductions: Number(adjustForm.otherDeductions) || 0,
+        adjustmentNote: adjustForm.adjustmentNote.trim() || undefined,
+      });
+      setAdjusting(null);
+      setNotice(`Adjustment saved for ${adjusting.employeeName} — run recomputed.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not save adjustment');
+    } finally {
+      setAdjustBusy(false);
+    }
+  }
 
   const load = useCallback(async () => {
     try {
@@ -157,12 +198,14 @@ export default function PayrollRunPage() {
       <div className="grid gap-3 sm:grid-cols-3 lg:grid-cols-4">
         {[
           ['Gross', run.totalGross],
+          ['Bonuses', run.totalBonus],
           ['PAYE', run.totalPaye],
           ['Pension (employee)', run.totalPensionEmployee],
           ['Pension (employer)', run.totalPensionEmployer],
           ['NHF', run.totalNhf],
           ['NHIS', run.totalNhis],
           ['Rent relief', run.totalRentRelief],
+          ['Other deductions', run.totalOtherDeductions],
           ['Net pay', run.totalNet],
         ].map(([label, value]) => (
           <div key={label} className="rounded-xl border border-slate-200 bg-white p-3 shadow-sm">
@@ -178,12 +221,17 @@ export default function PayrollRunPage() {
             No payslips in this run. Add compensation records for your employees, then recompute.
           </Empty>
         ) : (
-          <Table headers={['Employee', 'Bank', 'Gross', 'PAYE', 'Pension', 'NHF', 'NHIS', 'Net pay']}>
+          <Table headers={['Employee', 'Bank', 'Gross', 'Bonus', 'PAYE', 'Pension', 'Other ded.', 'Net pay', '']}>
             {run.payslips.map((slip) => (
               <tr key={slip.id}>
                 <td className="px-3 py-2">
                   <div className="font-medium">{slip.employeeName}</div>
                   <div className="text-xs text-slate-400">{slip.employeeNo}</div>
+                  {slip.adjustmentNote && (
+                    <div className="text-xs italic text-slate-400" title={slip.adjustmentNote}>
+                      {slip.adjustmentNote}
+                    </div>
+                  )}
                 </td>
                 <td className="px-3 py-2">
                   {slip.bankName ? (
@@ -196,11 +244,28 @@ export default function PayrollRunPage() {
                   )}
                 </td>
                 <td className="px-3 py-2">{formatNgn(slip.grossMonthly)}</td>
+                <td className="px-3 py-2">{formatNgn(slip.bonus)}</td>
                 <td className="px-3 py-2">{formatNgn(slip.paye)}</td>
                 <td className="px-3 py-2">{formatNgn(slip.pensionEmployee)}</td>
-                <td className="px-3 py-2">{formatNgn(slip.nhf)}</td>
-                <td className="px-3 py-2">{formatNgn(slip.nhis)}</td>
+                <td className="px-3 py-2">{formatNgn(slip.otherDeductions)}</td>
                 <td className="px-3 py-2 font-semibold">{formatNgn(slip.netPay)}</td>
+                <td className="px-3 py-2 text-right whitespace-nowrap">
+                  {manage && run.status === 'DRAFT' && (
+                    <button
+                      type="button"
+                      onClick={() => openAdjust(slip)}
+                      className="mr-3 text-sm font-medium text-brand-600 hover:underline"
+                    >
+                      Adjust
+                    </button>
+                  )}
+                  <a
+                    href={`/api/payroll/payslips/${slip.id}/pdf`}
+                    className="text-sm font-medium text-brand-600 hover:underline"
+                  >
+                    PDF
+                  </a>
+                </td>
               </tr>
             ))}
           </Table>
@@ -236,6 +301,54 @@ export default function PayrollRunPage() {
               </Button>
               <Button type="submit" variant="danger">
                 Reject run
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {adjusting && (
+        <Modal title={`Adjust — ${adjusting.employeeName}`} onClose={() => setAdjusting(null)}>
+          <form onSubmit={saveAdjust} className="space-y-4">
+            <p className="text-sm text-slate-600">
+              One-off amounts for this period only. The bonus is taxed at the employee&apos;s marginal
+              PAYE rate; other deductions are taken after tax. Saving recomputes the whole run.
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Bonus (NGN)">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={adjustForm.bonus}
+                  onChange={(e) => setAdjustForm((f) => ({ ...f, bonus: e.target.value }))}
+                />
+              </Field>
+              <Field label="Other deductions (NGN)">
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={adjustForm.otherDeductions}
+                  onChange={(e) => setAdjustForm((f) => ({ ...f, otherDeductions: e.target.value }))}
+                />
+              </Field>
+            </div>
+            <Field label="Note (shown on the payslip)">
+              <Input
+                type="text"
+                maxLength={300}
+                placeholder="e.g. Performance bonus / salary advance repayment"
+                value={adjustForm.adjustmentNote}
+                onChange={(e) => setAdjustForm((f) => ({ ...f, adjustmentNote: e.target.value }))}
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="secondary" onClick={() => setAdjusting(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={adjustBusy}>
+                {adjustBusy ? 'Saving…' : 'Save & recompute'}
               </Button>
             </div>
           </form>

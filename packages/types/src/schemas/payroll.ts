@@ -40,3 +40,11 @@ export type PayrollRunCreateInput = z.infer<typeof payrollRunCreateSchema>;
 export const payrollRejectSchema = z.object({
   note: z.string().trim().min(3).max(1000),
 });
+
+/** One-off per-payslip adjustments, editable while the run is still DRAFT. */
+export const payslipAdjustSchema = z.object({
+  bonus: z.coerce.number().min(0).max(1_000_000_000).default(0),
+  otherDeductions: z.coerce.number().min(0).max(1_000_000_000).default(0),
+  adjustmentNote: z.string().trim().max(300).optional(),
+});
+export type PayslipAdjustInput = z.infer<typeof payslipAdjustSchema>;

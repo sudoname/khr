@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { createHash } from 'crypto';
-import type { Request } from 'express';
+import type { CookieOptions, Request, Response } from 'express';
 import { MFA_REQUIRED_ROLES, SLUG_RE } from '@peopleflow/types';
 import { config } from '../../config';
 import { AppContext, RequestActor } from '../../context/app-context';
@@ -17,6 +17,20 @@ import { ALLOW_NO_MFA_KEY, IS_PUBLIC_KEY } from '../decorators';
 export function hashSessionToken(token: string): string {
   return createHash('sha256').update(token).digest('hex');
 }
+
+export function sessionCookieOptions(expires?: Date): CookieOptions {
+  return {
+    httpOnly: true,
+    sameSite: 'lax',
+    secure: config.secureCookies,
+    path: '/',
+    expires,
+    ...(config.cookieDomain ? { domain: config.cookieDomain } : {}),
+  };
+}
+
+/** Only extend a session when at least this much of its window has been used. */
+const SESSION_RENEW_THROTTLE_MS = 60 * 60 * 1000;
 
 @Injectable()
 export class AuthGuard implements CanActivate {
@@ -43,6 +57,17 @@ export class AuthGuard implements CanActivate {
     });
     if (!session || session.revokedAt || session.expiresAt < new Date()) {
       throw new UnauthorizedException('Session expired or revoked');
+    }
+
+    // Sliding expiry: activity keeps the session alive. Throttled so we only
+    // rewrite the row (and cookie) once the window has shrunk by an hour.
+    const renewedExpiry = new Date(Date.now() + config.sessionTtlHours * 3600 * 1000);
+    if (session.expiresAt.getTime() < renewedExpiry.getTime() - SESSION_RENEW_THROTTLE_MS) {
+      void this.prisma.session
+        .update({ where: { id: session.id }, data: { expiresAt: renewedExpiry } })
+        .catch(() => {}); // best-effort; the current expiry still stands
+      const res = context.switchToHttp().getResponse<Response>();
+      res.cookie(config.sessionCookieName, token, sessionCookieOptions(renewedExpiry));
     }
 
     const actor: RequestActor = {

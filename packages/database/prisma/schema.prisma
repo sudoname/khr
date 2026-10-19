@@ -577,6 +577,8 @@ model PayrollRun {
   engineVersion String?
 
   totalGross           Decimal @db.Decimal(18, 2) @default(0)
+  totalBonus           Decimal @db.Decimal(18, 2) @default(0)
+  totalOtherDeductions Decimal @db.Decimal(18, 2) @default(0)
   totalPaye            Decimal @db.Decimal(18, 2) @default(0)
   totalPensionEmployee Decimal @db.Decimal(18, 2) @default(0)
   totalPensionEmployer Decimal @db.Decimal(18, 2) @default(0)
@@ -626,6 +628,12 @@ model Payslip {
   housing         Decimal @db.Decimal(18, 2)
   transport       Decimal @db.Decimal(18, 2)
   otherAllowances Decimal @db.Decimal(18, 2) @default(0)
+  /// One-off taxable bonus for this period (not pensionable).
+  bonus           Decimal @db.Decimal(18, 2) @default(0)
+  /// One-off post-tax deduction (e.g. loan repayment, salary advance).
+  otherDeductions Decimal @db.Decimal(18, 2) @default(0)
+  /// Free-text reason shown on the payslip when adjustments are present.
+  adjustmentNote  String?
 
   pensionEmployee Decimal @db.Decimal(18, 2) @default(0)
   pensionEmployer Decimal @db.Decimal(18, 2) @default(0)

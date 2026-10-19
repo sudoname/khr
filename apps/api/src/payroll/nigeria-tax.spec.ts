@@ -220,6 +220,64 @@ describe('computePayslip — NTA_2025 (2026 onwards)', () => {
   });
 });
 
+describe('computePayslip — one-off bonus and other deductions', () => {
+  it('taxes a bonus at the marginal rate in the bonus month (NTA_2025)', () => {
+    // Base ₦500,000/month: taxable 5,520,000/yr → inside the 18% band.
+    const base = slipFor(500_000, 'NTA_2025');
+    const slip = computePayslip(
+      { grossMonthly: new D(500_000), bonus: new D(100_000) },
+      SETTINGS,
+      'NTA_2025',
+    );
+    expect(n(slip.bonus)).toBe(100_000);
+    // Marginal tax on the bonus: 100,000 × 18% = 18,000, charged this month.
+    expect(n(slip.paye)).toBe(n(base.paye) + 18_000);
+    // Bonus is not pensionable.
+    expect(slip.pensionEmployee.equals(base.pensionEmployee)).toBe(true);
+    expect(n(slip.netPay)).toBe(500_000 + 100_000 - (65_300 + 18_000) - 40_000);
+  });
+
+  it('spills a large bonus into the next tax band (NTA_2025)', () => {
+    // ₦100,000/month: taxable 1,104,000/yr (15% band). A ₦2M bonus crosses
+    // into the 18% band: payeOn(3,104,000) − payeOn(1,104,000) = 303,120.
+    const slip = computePayslip(
+      { grossMonthly: new D(100_000), bonus: new D(2_000_000) },
+      SETTINGS,
+      'NTA_2025',
+    );
+    expect(n(slip.paye)).toBe(3_800 + 303_120);
+    expect(n(slip.netPay)).toBe(100_000 + 2_000_000 - 306_920 - 8_000);
+  });
+
+  it('taxes a bonus under PITA_FA2020 bands too', () => {
+    // Taxable 683,200/yr sits in the 15% band; a 100,000 bonus stays there.
+    const slip = computePayslip(
+      { grossMonthly: new D(100_000), bonus: new D(100_000) },
+      SETTINGS,
+      'PITA_FA2020',
+    );
+    expect(n(slip.paye)).toBe(5_540 + 15_000);
+    expect(n(slip.netPay)).toBe(100_000 + 100_000 - 20_540 - 8_000);
+  });
+
+  it('takes other deductions post-tax without changing PAYE', () => {
+    const base = slipFor(500_000, 'NTA_2025');
+    const slip = computePayslip(
+      { grossMonthly: new D(500_000), otherDeductions: new D(25_000) },
+      SETTINGS,
+      'NTA_2025',
+    );
+    expect(slip.paye.equals(base.paye)).toBe(true);
+    expect(n(slip.netPay)).toBe(n(base.netPay) - 25_000);
+  });
+
+  it('defaults bonus and deductions to zero', () => {
+    const slip = slipFor(500_000, 'NTA_2025');
+    expect(n(slip.bonus)).toBe(0);
+    expect(n(slip.otherDeductions)).toBe(0);
+  });
+});
+
 describe('gross-to-net reconciliation', () => {
   const cases: Array<[string, 'PITA_FA2020' | 'NTA_2025', Partial<PayrollComputeSettings>]> = [
     ['100000', 'PITA_FA2020', {}],

@@ -7,7 +7,7 @@ import {
 } from '@nestjs/common';
 import { stringify } from 'csv-stringify/sync';
 import { Prisma } from '@peopleflow/database';
-import type { PayrollRunCreateInput, PayrollSettingsInput } from '@peopleflow/types';
+import type { PayrollRunCreateInput, PayrollSettingsInput, PayslipAdjustInput } from '@peopleflow/types';
 import { csvSafe } from '../common/csv';
 import { config } from '../config';
 import { AppContext } from '../context/app-context';
@@ -24,6 +24,7 @@ import {
   type PayrollComputeSettings,
   type TaxRegimeId,
 } from './nigeria-tax';
+import { renderPayslipPdf, type PayslipPdfLine } from './payslip-pdf';
 
 const MONTH_NAMES = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -227,6 +228,14 @@ export class PayrollService {
       orderBy: { employeeNo: 'asc' },
     });
 
+    // One-off adjustments (bonus / deductions) set on the current draft slips
+    // survive a recompute: carry them over keyed by employee.
+    const priorSlips = await this.db.payslip.findMany({
+      where: { runId },
+      select: { employeeId: true, bonus: true, otherDeductions: true, adjustmentNote: true },
+    });
+    const adjustments = new Map(priorSlips.map((p) => [p.employeeId, p]));
+
     const skipped: { employeeNo: string; name: string; reason: string }[] = [];
     const slips: Array<{
       employeeId: string;
@@ -234,6 +243,7 @@ export class PayrollService {
       employeeNo: string;
       bankName: string | null;
       bankAccountNumber: string | null;
+      adjustmentNote: string | null;
       computed: ReturnType<typeof computePayslip>;
     }> = [];
 
@@ -246,14 +256,21 @@ export class PayrollService {
       }
       // comp.baseSalary is a Prisma Decimal and stays Decimal end-to-end.
       const grossMonthly = toMonthlyGross(comp.baseSalary, comp.payFrequency);
+      const adj = adjustments.get(emp.id);
       slips.push({
         employeeId: emp.id,
         employeeName: name,
         employeeNo: emp.employeeNo,
         bankName: emp.bankName,
         bankAccountNumber: emp.bankAccountNumber,
+        adjustmentNote: adj?.adjustmentNote ?? null,
         computed: computePayslip(
-          { grossMonthly, annualRentDeclared: emp.annualRentDeclared },
+          {
+            grossMonthly,
+            annualRentDeclared: emp.annualRentDeclared,
+            bonus: adj?.bonus,
+            otherDeductions: adj?.otherDeductions,
+          },
           settings,
           regime,
         ),
@@ -266,6 +283,8 @@ export class PayrollService {
     const totals = slips.reduce(
       (acc, s) => ({
         totalGross: acc.totalGross.add(s.computed.grossMonthly),
+        totalBonus: acc.totalBonus.add(s.computed.bonus),
+        totalOtherDeductions: acc.totalOtherDeductions.add(s.computed.otherDeductions),
         totalPaye: acc.totalPaye.add(s.computed.paye),
         totalPensionEmployee: acc.totalPensionEmployee.add(s.computed.pensionEmployee),
         totalPensionEmployer: acc.totalPensionEmployer.add(s.computed.pensionEmployer),
@@ -278,6 +297,8 @@ export class PayrollService {
       }),
       {
         totalGross: Z,
+        totalBonus: Z,
+        totalOtherDeductions: Z,
         totalPaye: Z,
         totalPensionEmployee: Z,
         totalPensionEmployer: Z,
@@ -305,6 +326,8 @@ export class PayrollService {
           taxRegime: regime,
           engineVersion,
           totalGross: totals.totalGross,
+          totalBonus: totals.totalBonus,
+          totalOtherDeductions: totals.totalOtherDeductions,
           totalPaye: totals.totalPaye,
           totalPensionEmployee: totals.totalPensionEmployee,
           totalPensionEmployer: totals.totalPensionEmployer,
@@ -332,6 +355,9 @@ export class PayrollService {
             basic: s.computed.basic,
             housing: s.computed.housing,
             transport: s.computed.transport,
+            bonus: s.computed.bonus,
+            otherDeductions: s.computed.otherDeductions,
+            adjustmentNote: s.adjustmentNote,
             pensionEmployee: s.computed.pensionEmployee,
             pensionEmployer: s.computed.pensionEmployer,
             nhf: s.computed.nhf,
@@ -417,6 +443,8 @@ export class PayrollService {
       _count: true,
       _sum: {
         grossMonthly: true,
+        bonus: true,
+        otherDeductions: true,
         paye: true,
         pensionEmployee: true,
         pensionEmployer: true,
@@ -437,6 +465,8 @@ export class PayrollService {
     const Z = new Prisma.Decimal(0);
     const pairs: Array<[string, keyof typeof agg._sum]> = [
       ['totalGross', 'grossMonthly'],
+      ['totalBonus', 'bonus'],
+      ['totalOtherDeductions', 'otherDeductions'],
       ['totalPaye', 'paye'],
       ['totalPensionEmployee', 'pensionEmployee'],
       ['totalPensionEmployer', 'pensionEmployer'],
@@ -535,6 +565,43 @@ export class PayrollService {
 
   // ─────────────────────────── payslips & exports ───────────────────────────
 
+  /**
+   * Set one-off bonus / other-deduction amounts on a payslip while its run is
+   * still DRAFT, then recompute the whole run so PAYE, net pay and run totals
+   * all reflect the adjustment (recompute carries adjustments over).
+   */
+  async adjustPayslip(runId: string, payslipId: string, input: PayslipAdjustInput) {
+    const run = await this.db.payrollRun.findFirst({ where: { id: runId }, select: { status: true } });
+    if (!run) throw new NotFoundException('Payroll run not found');
+    if (run.status !== 'DRAFT') {
+      throw new BadRequestException('Adjustments can only be made while the run is a draft');
+    }
+    const slip = await this.db.payslip.findFirst({
+      where: { id: payslipId, runId },
+      select: { id: true, employeeName: true },
+    });
+    if (!slip) throw new NotFoundException('Payslip not found');
+
+    await this.db.payslip.update({
+      where: { id: payslipId },
+      data: {
+        bonus: new Prisma.Decimal(input.bonus),
+        otherDeductions: new Prisma.Decimal(input.otherDeductions),
+        adjustmentNote: input.adjustmentNote?.trim() || null,
+      },
+    });
+    await this.audit.log('payroll.payslip_adjusted', {
+      entity: 'Payslip',
+      entityId: payslipId,
+      meta: {
+        employee: slip.employeeName,
+        bonus: input.bonus.toFixed(2),
+        otherDeductions: input.otherDeductions.toFixed(2),
+      },
+    });
+    return this.compute(runId);
+  }
+
   async myPayslips() {
     const employeeId = this.ctx.employeeIdOrNull;
     if (!employeeId) return [];
@@ -544,6 +611,118 @@ export class PayrollService {
       orderBy: { createdAt: 'desc' },
       take: 36,
     });
+  }
+
+  /**
+   * Itemized PDF payslip with a cumulative year-to-date column for every
+   * line item (earnings, bonus, each deduction, employer contributions, net).
+   * Employees can download their own slips from PAID runs; payroll managers
+   * can download any slip (unpaid runs are watermarked as previews).
+   */
+  async payslipPdf(payslipId: string): Promise<{ pdf: Buffer; filename: string }> {
+    const slip = await this.db.payslip.findFirst({
+      where: { id: payslipId },
+      include: { run: { select: { year: true, month: true, status: true, paidAt: true } } },
+    });
+    if (!slip) throw new NotFoundException('Payslip not found');
+
+    const isManager = this.ctx.can('payroll.manage');
+    const isOwn = this.ctx.employeeIdOrNull === slip.employeeId;
+    if (!isManager && (!isOwn || slip.run.status !== 'PAID')) {
+      throw new NotFoundException('Payslip not found');
+    }
+
+    // YTD = all PAID months of the same year up to this slip's month, plus
+    // this slip itself (so manager previews of unpaid runs include the
+    // current period). Decimal sums happen in the database.
+    const ytdAgg = await this.db.payslip.aggregate({
+      where: {
+        employeeId: slip.employeeId,
+        run: { year: slip.run.year, month: { lte: slip.run.month } },
+        OR: [{ run: { status: 'PAID' } }, { id: payslipId }],
+      },
+      _sum: {
+        grossMonthly: true,
+        basic: true,
+        housing: true,
+        transport: true,
+        bonus: true,
+        paye: true,
+        pensionEmployee: true,
+        nhf: true,
+        nhis: true,
+        otherDeductions: true,
+        pensionEmployer: true,
+        nsitf: true,
+        itf: true,
+        netPay: true,
+      },
+    });
+    const Z = new Prisma.Decimal(0);
+    const sum = ytdAgg._sum;
+    const n = (d: Prisma.Decimal | null | undefined) => Number(d ?? Z);
+
+    // "Other allowances" is the gross remainder when basic+housing+transport
+    // percentages sum below 100 — derived in Decimal to avoid float noise.
+    const otherAllowCurrent = slip.grossMonthly.sub(slip.basic).sub(slip.housing).sub(slip.transport);
+    const otherAllowYtd = (sum.grossMonthly ?? Z)
+      .sub(sum.basic ?? Z)
+      .sub(sum.housing ?? Z)
+      .sub(sum.transport ?? Z);
+
+    const company = await this.prisma.company.findUnique({
+      where: { id: this.ctx.companyId },
+      select: { name: true, rcNumber: true },
+    });
+
+    const keep = new Set(['Basic salary', 'Housing allowance', 'Transport allowance', 'PAYE tax']);
+    const nonZero = (lines: PayslipPdfLine[]) =>
+      lines.filter((l) => keep.has(l.label) || l.current !== 0 || l.ytd !== 0);
+
+    const period = `${MONTH_NAMES[slip.run.month - 1]} ${slip.run.year}`;
+    const pdf = await renderPayslipPdf({
+      companyName: company?.name ?? 'KHR',
+      rcNumber: company?.rcNumber ?? null,
+      period,
+      status: slip.run.status,
+      paidAt: slip.run.paidAt,
+      employeeName: slip.employeeName,
+      employeeNo: slip.employeeNo,
+      bankName: slip.bankName,
+      bankAccountNumber: slip.bankAccountNumber,
+      taxRegime: slip.taxRegime,
+      adjustmentNote: slip.adjustmentNote,
+      currency: slip.currency,
+      earnings: nonZero([
+        { label: 'Basic salary', current: Number(slip.basic), ytd: n(sum.basic) },
+        { label: 'Housing allowance', current: Number(slip.housing), ytd: n(sum.housing) },
+        { label: 'Transport allowance', current: Number(slip.transport), ytd: n(sum.transport) },
+        { label: 'Other allowances', current: Number(otherAllowCurrent), ytd: Number(otherAllowYtd) },
+        { label: 'Bonus', current: Number(slip.bonus), ytd: n(sum.bonus) },
+      ]),
+      deductions: nonZero([
+        { label: 'PAYE tax', current: Number(slip.paye), ytd: n(sum.paye) },
+        { label: 'Pension (employee)', current: Number(slip.pensionEmployee), ytd: n(sum.pensionEmployee) },
+        { label: 'NHF', current: Number(slip.nhf), ytd: n(sum.nhf) },
+        { label: 'NHIS', current: Number(slip.nhis), ytd: n(sum.nhis) },
+        { label: 'Other deductions', current: Number(slip.otherDeductions), ytd: n(sum.otherDeductions) },
+      ]),
+      employerContributions: nonZero([
+        { label: 'Pension (employer)', current: Number(slip.pensionEmployer), ytd: n(sum.pensionEmployer) },
+        { label: 'NSITF', current: Number(slip.nsitf), ytd: n(sum.nsitf) },
+        { label: 'ITF', current: Number(slip.itf), ytd: n(sum.itf) },
+      ]),
+      net: { label: 'NET PAY', current: Number(slip.netPay), ytd: n(sum.netPay) },
+    });
+
+    await this.audit.log('payroll.payslip_pdf_exported', {
+      entity: 'Payslip',
+      entityId: payslipId,
+      meta: { employee: slip.employeeName, period },
+    });
+    const ym = `${slip.run.year}-${String(slip.run.month).padStart(2, '0')}`;
+    const safeNo = slip.employeeNo.replace(/[^A-Za-z0-9-]+/g, '-');
+    return { pdf, filename: `payslip-${ym}-${safeNo}.pdf` };
   }
 
   async bankScheduleCsv(id: string): Promise<{ csv: string; filename: string }> {

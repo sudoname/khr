@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
@@ -22,9 +22,16 @@ interface PayrollRunRow {
 interface MyPayslip {
   id: string;
   grossMonthly: string;
+  basic: string;
+  housing: string;
+  transport: string;
+  bonus: string;
   paye: string;
   pensionEmployee: string;
   nhf: string;
+  nhis: string;
+  otherDeductions: string;
+  adjustmentNote: string | null;
   netPay: string;
   run: { year: number; month: number; paidAt: string | null };
 }
@@ -54,6 +61,15 @@ interface TaxStatus {
   approved: boolean;
 }
 
+function ItemLine({ label, value, bold }: { label: string; value: string; bold?: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-4 py-0.5">
+      <span className="text-slate-500">{label}</span>
+      <span className={bold ? 'font-semibold' : ''}>{formatNgn(value)}</span>
+    </div>
+  );
+}
+
 export default function PayrollPage() {
   const { can } = useSession();
   const manage = can('payroll.manage');
@@ -64,6 +80,7 @@ export default function PayrollPage() {
 
   // self-service payslips
   const [payslips, setPayslips] = useState<MyPayslip[] | null>(null);
+  const [expandedSlip, setExpandedSlip] = useState<string | null>(null);
 
   // runs (managers)
   const [runs, setRuns] = useState<PayrollRunRow[] | null>(null);
@@ -273,18 +290,71 @@ export default function PayrollPage() {
         ) : payslips.length === 0 ? (
           <Empty>No payslips yet. They appear here once a payroll run is marked as paid.</Empty>
         ) : (
-          <Table headers={['Period', 'Gross', 'PAYE', 'Pension', 'NHF', 'Net pay']}>
+          <Table headers={['Period', 'Gross', 'Bonus', 'PAYE', 'Pension', 'Net pay', '']}>
             {payslips.map((slip) => (
-              <tr key={slip.id}>
-                <td className="px-3 py-2 font-medium">
-                  {MONTHS[slip.run.month - 1]} {slip.run.year}
-                </td>
-                <td className="px-3 py-2">{formatNgn(slip.grossMonthly)}</td>
-                <td className="px-3 py-2">{formatNgn(slip.paye)}</td>
-                <td className="px-3 py-2">{formatNgn(slip.pensionEmployee)}</td>
-                <td className="px-3 py-2">{formatNgn(slip.nhf)}</td>
-                <td className="px-3 py-2 font-semibold">{formatNgn(slip.netPay)}</td>
-              </tr>
+              <Fragment key={slip.id}>
+                <tr
+                  className="cursor-pointer hover:bg-slate-50"
+                  onClick={() => setExpandedSlip((cur) => (cur === slip.id ? null : slip.id))}
+                >
+                  <td className="px-3 py-2 font-medium">
+                    {MONTHS[slip.run.month - 1]} {slip.run.year}
+                  </td>
+                  <td className="px-3 py-2">{formatNgn(slip.grossMonthly)}</td>
+                  <td className="px-3 py-2">{formatNgn(slip.bonus)}</td>
+                  <td className="px-3 py-2">{formatNgn(slip.paye)}</td>
+                  <td className="px-3 py-2">{formatNgn(slip.pensionEmployee)}</td>
+                  <td className="px-3 py-2 font-semibold">{formatNgn(slip.netPay)}</td>
+                  <td className="px-3 py-2 text-right">
+                    <a
+                      href={`/api/payroll/payslips/${slip.id}/pdf`}
+                      onClick={(e) => e.stopPropagation()}
+                      className="text-sm font-medium text-brand-600 hover:underline"
+                    >
+                      PDF
+                    </a>
+                  </td>
+                </tr>
+                {expandedSlip === slip.id && (
+                  <tr className="bg-slate-50">
+                    <td colSpan={7} className="px-3 py-3">
+                      <div className="grid gap-4 text-sm sm:grid-cols-3">
+                        <div>
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                            Earnings
+                          </div>
+                          <ItemLine label="Basic" value={slip.basic} />
+                          <ItemLine label="Housing" value={slip.housing} />
+                          <ItemLine label="Transport" value={slip.transport} />
+                          <ItemLine label="Bonus" value={slip.bonus} />
+                        </div>
+                        <div>
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                            Deductions
+                          </div>
+                          <ItemLine label="PAYE tax" value={slip.paye} />
+                          <ItemLine label="Pension" value={slip.pensionEmployee} />
+                          <ItemLine label="NHF" value={slip.nhf} />
+                          <ItemLine label="NHIS" value={slip.nhis} />
+                          <ItemLine label="Other" value={slip.otherDeductions} />
+                        </div>
+                        <div>
+                          <div className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">
+                            Net
+                          </div>
+                          <ItemLine label="Net pay" value={slip.netPay} bold />
+                          {slip.adjustmentNote && (
+                            <p className="mt-2 text-xs italic text-slate-500">Note: {slip.adjustmentNote}</p>
+                          )}
+                          <p className="mt-2 text-xs text-slate-400">
+                            Download the PDF for the full breakdown with year-to-date totals.
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
             ))}
           </Table>
         )}

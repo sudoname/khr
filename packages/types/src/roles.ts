@@ -11,7 +11,7 @@ export const COMPANY_ROLES = [
 export type CompanyRole = (typeof COMPANY_ROLES)[number];
 
 /** Roles that must have MFA enabled before accessing privileged endpoints. */
-export const MFA_REQUIRED_ROLES: CompanyRole[] = ['COMPANY_ADMIN', 'HR_ADMIN', 'PAYROLL_OFFICER'];
+export const MFA_REQUIRED_ROLES: CompanyRole[] = ['COMPANY_ADMIN'];
 
 export const PERMISSIONS = [
   // company & members

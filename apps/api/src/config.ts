@@ -30,7 +30,11 @@ export const config = {
   /** Cookie Domain attribute (e.g. ".khr.ng") so sessions span subdomains. */
   cookieDomain: process.env.COOKIE_DOMAIN?.trim() || '',
   sessionCookieName: 'pf_session',
-  sessionTtlHours: 24 * 7,
+  /**
+   * Sliding inactivity window: every authenticated request renews the session
+   * (throttled), so users stay signed in until this long passes with no activity.
+   */
+  sessionTtlHours: 24 * 30,
   /** When enabled, privileged roles must enroll MFA before using tenant APIs. */
   enforceMfaForPrivileged: process.env.ENFORCE_MFA_FOR_PRIVILEGED === '1' || isProd,
   /** Google OAuth sign-in. Disabled unless both values are provided. */

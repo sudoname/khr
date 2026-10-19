@@ -158,6 +158,10 @@ export interface PayslipInput {
   grossMonthly: Decimal;
   /** Employee-declared annual rent (NTA 2025 rent relief). Null/absent = no relief. */
   annualRentDeclared?: Decimal | null;
+  /** One-off taxable bonus for this period. Not pensionable. */
+  bonus?: Decimal | null;
+  /** One-off post-tax deduction (loan repayment, salary advance, …). */
+  otherDeductions?: Decimal | null;
 }
 
 export interface PayslipComputation {
@@ -167,6 +171,10 @@ export interface PayslipComputation {
   basic: Decimal;
   housing: Decimal;
   transport: Decimal;
+  /** One-off taxable bonus included in this period's pay (not pensionable). */
+  bonus: Decimal;
+  /** One-off post-tax deduction taken from this period's net pay. */
+  otherDeductions: Decimal;
   pensionEmployee: Decimal;
   pensionEmployer: Decimal;
   nhf: Decimal;
@@ -275,12 +283,26 @@ export function computePayslip(
     }
   }
 
+  // One-off bonus: taxed at the employee's marginal rate — PAYE on
+  // (annual taxable income + bonus) minus PAYE on annual taxable income
+  // alone, charged entirely in the bonus month. Not pensionable, and it
+  // does not change the regular monthly PAYE.
+  const bonus = round2(input.bonus ?? ZERO);
+  const otherDeductions = round2(input.otherDeductions ?? ZERO);
+  let bonusTax = ZERO;
+  if (bonus.gt(0)) {
+    const base = taxableAnnual.gt(0) ? taxableAnnual : ZERO;
+    bonusTax = annualPayeOn(base.add(bonus), regime).sub(annualPayeOn(base, regime));
+  }
+
   const pensionEmployee = round2(pensionEmployeeAnnual.div(TWELVE));
   const pensionEmployer = round2(pensionEmployerAnnual.div(TWELVE));
   const nhf = round2(nhfAnnual.div(TWELVE));
   const nhis = round2(nhisAnnual.div(TWELVE));
-  const paye = round2(payeAnnual.div(TWELVE));
-  const netPay = round2(grossMonthly.sub(paye).sub(pensionEmployee).sub(nhf).sub(nhis));
+  const paye = round2(payeAnnual.div(TWELVE).add(bonusTax));
+  const netPay = round2(
+    grossMonthly.add(bonus).sub(paye).sub(pensionEmployee).sub(nhf).sub(nhis).sub(otherDeductions),
+  );
 
   const nsitf = settings.nsitfEnabled ? round2(pct(grossMonthly, settings.nsitfPercent)) : ZERO;
   const itf = settings.itfEnabled ? round2(pct(grossMonthly, settings.itfPercent)) : ZERO;
@@ -292,6 +314,8 @@ export function computePayslip(
     basic,
     housing,
     transport,
+    bonus,
+    otherDeductions,
     pensionEmployee,
     pensionEmployer,
     nhf,

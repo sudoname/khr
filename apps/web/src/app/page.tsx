@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { NavAuthLink } from '@/components/nav-auth-link';
 
 function GoogleIcon() {
   return (
@@ -73,9 +74,7 @@ export default function LandingPage() {
             <a href="#security" className="hidden font-mono text-[11px] tracking-[0.2em] text-slate-500 hover:text-cyan-700 md:inline">
               SECURITY
             </a>
-            <Link href="/login" className="font-mono text-[11px] tracking-[0.2em] text-slate-700 hover:text-cyan-700">
-              SIGN IN
-            </Link>
+            <NavAuthLink className="font-mono text-[11px] tracking-[0.2em] text-slate-700 hover:text-cyan-700" />
             <Link
               href="/register"
               className="border border-cyan-500/70 px-4 py-1.5 font-mono text-[11px] tracking-[0.2em] text-cyan-700 transition hover:bg-cyan-50"
