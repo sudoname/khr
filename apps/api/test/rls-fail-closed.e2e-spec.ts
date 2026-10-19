@@ -14,6 +14,11 @@
  *   audit scope     → AuditLog INSERT only, no reads
  *   platform scope  → cross-tenant SELECT only, no writes
  *
+ * Plus the `audit_append_only` migration (WP-4): AuditLog rows can never be
+ * updated or deleted — khr_app loses the grants, and a trigger blocks even
+ * the owner. The single allowed mutation is the FK ON DELETE SET NULL from
+ * User (anonymization on user deletion).
+ *
  * Requires the local docker-compose Postgres with migrations applied.
  */
 import * as path from 'path';
@@ -273,7 +278,63 @@ describe('RLS fail-closed (khr_app role)', () => {
       expect(
         await tenantClient(app, companyA.id).auditLog.count({ where: { action: `rls.e2e.${STAMP}` } }),
       ).toBe(1);
-      await owner.auditLog.deleteMany({ where: { action: `rls.e2e.${STAMP}` } });
+      // No cleanup: AuditLog is append-only (see WP-4 tests below); the
+      // STAMP-unique action keeps runs independent.
+    });
+  });
+
+  // ───────────────────────── append-only audit (WP-4) ─────────────────────────
+
+  describe('append-only AuditLog', () => {
+    const action = `rls.e2e.${STAMP}`;
+
+    it('khr_app cannot UPDATE audit rows even in tenant scope (grant revoked)', async () => {
+      const dbA = tenantClient(app, companyA.id);
+      await expect(
+        dbA.auditLog.updateMany({ where: { action }, data: { action: `${action}.tampered` } }),
+      ).rejects.toThrow(/permission denied|append-only/i);
+      expect(await owner.auditLog.count({ where: { action } })).toBe(2);
+    });
+
+    it('khr_app cannot DELETE audit rows even in tenant scope (grant revoked)', async () => {
+      const dbA = tenantClient(app, companyA.id);
+      await expect(dbA.auditLog.deleteMany({ where: { action } })).rejects.toThrow(
+        /permission denied|append-only/i,
+      );
+      expect(await owner.auditLog.count({ where: { action } })).toBe(2);
+    });
+
+    it('even the table owner cannot UPDATE or DELETE (trigger)', async () => {
+      await expect(
+        owner.auditLog.updateMany({ where: { action }, data: { action: `${action}.tampered` } }),
+      ).rejects.toThrow(/append-only/i);
+      await expect(owner.auditLog.deleteMany({ where: { action } })).rejects.toThrow(/append-only/i);
+      expect(await owner.auditLog.count({ where: { action } })).toBe(2);
+    });
+
+    it('deleting a user still anonymizes their audit rows (FK SET NULL carve-out)', async () => {
+      const anonAction = `rls.e2e.anon.${STAMP}`;
+      const userC = await owner.user.create({
+        data: { email: `rls.c.${STAMP}@example.test`, firstName: 'Rls', lastName: 'C', passwordHash: 'x' },
+        select: { id: true },
+      });
+      await owner.auditLog.create({ data: { action: anonAction, userId: userC.id } });
+      // Must not trip the trigger: the FK action's UPDATE only nulls userId.
+      await owner.user.delete({ where: { id: userC.id } });
+      const row = await owner.auditLog.findFirst({ where: { action: anonAction } });
+      expect(row).not.toBeNull();
+      expect(row?.userId).toBeNull();
+    });
+
+    it('audit INSERTs still work after the lockdown (audit scope)', async () => {
+      // createMany: audit scope is INSERT-only, so INSERT..RETURNING (create)
+      // cannot see the new row back.
+      const audit = auditClient(app);
+      const res = await audit.auditLog.createMany({
+        data: [{ action: `${action}.post-lockdown`, companyId: companyA.id }],
+      });
+      expect(res.count).toBe(1);
+      expect(await owner.auditLog.count({ where: { action: `${action}.post-lockdown` } })).toBe(1);
     });
   });
 
