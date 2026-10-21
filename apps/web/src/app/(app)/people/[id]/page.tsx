@@ -35,6 +35,11 @@ interface EmployeeDetail {
   terminationDate?: string | null;
   grade?: string | null;
   annualRentDeclared?: string | null;
+  // Restricted fields: the API nulls these unless the viewer is the employee
+  // themself or holds compensation.read.
+  bvn?: string | null;
+  bankName?: string | null;
+  bankAccountNumber?: string | null;
   emergencyContacts?: { id: string; name: string; relationship: string | null; phone: string; email: string | null }[];
 }
 
@@ -153,6 +158,22 @@ export default function EmployeeProfilePage() {
         jobTitle: emp.jobTitle,
         grade: emp.grade ?? '',
         phone: emp.phone ?? '',
+        personalEmail: emp.personalEmail ?? '',
+        addressLine1: emp.addressLine1 ?? '',
+        city: emp.city ?? '',
+        state: emp.state ?? '',
+        // Only editable when the viewer can actually see the stored values —
+        // otherwise saving would blindly clear them.
+        ...(can('compensation.read')
+          ? {
+              bvn: emp.bvn ?? '',
+              bankName: emp.bankName ?? '',
+              bankAccountNumber: emp.bankAccountNumber ?? '',
+            }
+          : {}),
+        ecName: emp.emergencyContacts?.[0]?.name ?? '',
+        ecRelationship: emp.emergencyContacts?.[0]?.relationship ?? '',
+        ecPhone: emp.emergencyContacts?.[0]?.phone ?? '',
       });
     } else if (kind === 'terminate') {
       setForm({ terminationDate: new Date().toISOString().slice(0, 10), reason: '' });
@@ -175,7 +196,13 @@ export default function EmployeeProfilePage() {
     setBusy(true);
     try {
       if (modal === 'edit') {
-        await api.patch(`/employees/${id}`, form);
+        const { ecName, ecRelationship, ecPhone, ...rest } = form;
+        const body: Record<string, unknown> = { ...rest };
+        // Replace-style: the emergency contact is only touched when provided.
+        if (ecName && ecPhone) {
+          body.emergencyContact = { name: ecName, relationship: ecRelationship ?? '', phone: ecPhone };
+        }
+        await api.patch(`/employees/${id}`, body);
         setNotice('Profile updated.');
       } else if (modal === 'terminate') {
         await api.post(`/employees/${id}/terminate`, form);
@@ -296,16 +323,31 @@ export default function EmployeeProfilePage() {
               <dt className="text-slate-500">Date of birth</dt>
               <dd>{d(emp.dateOfBirth)}</dd>
             </dl>
-            {emp.emergencyContacts && emp.emergencyContacts.length > 0 && (
-              <div className="mt-3 border-t border-slate-100 pt-3 text-sm">
-                <div className="mb-1 text-xs font-medium text-slate-500">Emergency contact</div>
-                {emp.emergencyContacts.map((c) => (
+            {(can('compensation.read') || emp.bvn || emp.bankName || emp.bankAccountNumber) && (
+              <div className="mt-3 border-t border-slate-100 pt-3">
+                <div className="mb-1 text-xs font-medium text-slate-500">Banking &amp; identity (restricted)</div>
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
+                  <dt className="text-slate-500">BVN</dt>
+                  <dd>{emp.bvn ?? '—'}</dd>
+                  <dt className="text-slate-500">Bank</dt>
+                  <dd>{emp.bankName ?? '—'}</dd>
+                  <dt className="text-slate-500">Account number</dt>
+                  <dd>{emp.bankAccountNumber ?? '—'}</dd>
+                </dl>
+              </div>
+            )}
+            <div className="mt-3 border-t border-slate-100 pt-3 text-sm">
+              <div className="mb-1 text-xs font-medium text-slate-500">Emergency contact</div>
+              {emp.emergencyContacts && emp.emergencyContacts.length > 0 ? (
+                emp.emergencyContacts.map((c) => (
                   <div key={c.id}>
                     {c.name} ({c.relationship ?? 'contact'}) — {c.phone}
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              ) : (
+                <div className="text-slate-400">None recorded.</div>
+              )}
+            </div>
           </Card>
         )}
 
@@ -456,6 +498,50 @@ export default function EmployeeProfilePage() {
                 <Input value={form.phone ?? ''} onChange={setF('phone')} />
               </Field>
             </div>
+            <Field label="Personal email">
+              <Input type="email" value={form.personalEmail ?? ''} onChange={setF('personalEmail')} />
+            </Field>
+            <Field label="Home address">
+              <Input value={form.addressLine1 ?? ''} onChange={setF('addressLine1')} />
+            </Field>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="City">
+                <Input value={form.city ?? ''} onChange={setF('city')} />
+              </Field>
+              <Field label="State">
+                <Input value={form.state ?? ''} onChange={setF('state')} />
+              </Field>
+            </div>
+            {can('compensation.read') && (
+              <>
+                <div className="border-t border-slate-100 pt-3 text-xs font-medium text-slate-500">
+                  Banking &amp; identity (visible only to payroll roles and the employee)
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Bank name">
+                    <Input value={form.bankName ?? ''} onChange={setF('bankName')} />
+                  </Field>
+                  <Field label="Account number (NUBAN)">
+                    <Input value={form.bankAccountNumber ?? ''} onChange={setF('bankAccountNumber')} maxLength={10} placeholder="10 digits" />
+                  </Field>
+                </div>
+                <Field label="BVN">
+                  <Input value={form.bvn ?? ''} onChange={setF('bvn')} maxLength={11} placeholder="11 digits" />
+                </Field>
+              </>
+            )}
+            <div className="border-t border-slate-100 pt-3 text-xs font-medium text-slate-500">Emergency contact</div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Name">
+                <Input value={form.ecName ?? ''} onChange={setF('ecName')} />
+              </Field>
+              <Field label="Relationship">
+                <Input value={form.ecRelationship ?? ''} onChange={setF('ecRelationship')} placeholder="e.g. Spouse" />
+              </Field>
+            </div>
+            <Field label="Contact phone">
+              <Input value={form.ecPhone ?? ''} onChange={setF('ecPhone')} />
+            </Field>
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" onClick={() => setModal(null)}>
                 Cancel

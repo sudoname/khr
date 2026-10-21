@@ -20,6 +20,20 @@ export const employeeCreateSchema = z.object({
   state: z.string().trim().max(80).optional().or(z.literal('')),
   country: z.string().trim().max(2).optional().or(z.literal('')),
   dateOfBirth: isoDate.optional().or(z.literal('')),
+  // Banking/identity details (field-level restricted server-side, like salary).
+  bvn: z
+    .string()
+    .trim()
+    .regex(/^\d{11}$/, 'BVN is 11 digits')
+    .optional()
+    .or(z.literal('')),
+  bankName: z.string().trim().max(120).optional().or(z.literal('')),
+  bankAccountNumber: z
+    .string()
+    .trim()
+    .regex(/^\d{10}$/, 'NUBAN account numbers are 10 digits')
+    .optional()
+    .or(z.literal('')),
   employmentType: z.enum(EMPLOYMENT_TYPES).default('FULL_TIME'),
   hireDate: isoDate,
   probationEndsOn: isoDate.optional().or(z.literal('')),
