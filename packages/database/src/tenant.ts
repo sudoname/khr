@@ -45,6 +45,8 @@ export const TENANT_MODELS: ReadonlySet<string> = new Set([
   'PerformanceReview',
   'Course',
   'CourseEnrollment',
+  'ContractTemplate',
+  'EmploymentContract',
 ]);
 
 const UNIQUE_WHERE_OPS = new Set([

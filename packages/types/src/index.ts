@@ -13,3 +13,4 @@ export * from './schemas/documents';
 export * from './schemas/performance';
 export * from './schemas/training';
 export * from './schemas/billing';
+export * from './schemas/contracts';

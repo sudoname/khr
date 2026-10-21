@@ -55,6 +55,13 @@ interface Compensation {
   note: string | null;
 }
 
+interface ContractSummary {
+  id: string;
+  title: string;
+  roleTitle: string;
+  updatedAt: string;
+}
+
 const d = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
 export default function EmployeeProfilePage() {
@@ -65,6 +72,8 @@ export default function EmployeeProfilePage() {
   const [comp, setComp] = useState<Compensation[] | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [contract, setContract] = useState<ContractSummary | null | undefined>(undefined);
+  const [contractBusy, setContractBusy] = useState(false);
   const [modal, setModal] = useState<'edit' | 'terminate' | 'rehire' | 'comp' | 'rent' | null>(null);
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
@@ -93,6 +102,46 @@ export default function EmployeeProfilePage() {
       api.get<Compensation[]>(`/employees/${id}/compensation`).then(setComp).catch(() => setComp([]));
     }
   }, [id, can]);
+
+  useEffect(() => {
+    if (!can('document.manage')) return;
+    api
+      .get<ContractSummary>(`/contracts/employee/${id}`)
+      .then(setContract)
+      .catch(() => setContract(null)); // 404 = no contract generated yet
+  }, [id, can]);
+
+  async function generateContract() {
+    setError('');
+    setNotice('');
+    setContractBusy(true);
+    try {
+      const created = await api.post<ContractSummary>(`/contracts/employee/${id}`, {});
+      setContract(created);
+      setNotice('Contract generated from the company template. Review and edit it before downloading.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to generate contract');
+    } finally {
+      setContractBusy(false);
+    }
+  }
+
+  async function deleteContract() {
+    if (!contract) return;
+    if (!window.confirm('Delete this contract? You can regenerate it from the template afterwards.')) return;
+    setError('');
+    setNotice('');
+    setContractBusy(true);
+    try {
+      await api.delete(`/contracts/${contract.id}`);
+      setContract(null);
+      setNotice('Contract deleted.');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete contract');
+    } finally {
+      setContractBusy(false);
+    }
+  }
 
   function openModal(kind: 'edit' | 'terminate' | 'rehire' | 'comp' | 'rent') {
     setModalError('');
@@ -328,6 +377,52 @@ export default function EmployeeProfilePage() {
                   </li>
                 ))}
               </ul>
+            )}
+          </Card>
+        )}
+
+        {can('document.manage') && isFull && (
+          <Card title="Employment contract">
+            {contract === undefined ? (
+              <Spinner />
+            ) : contract === null ? (
+              <div className="space-y-3">
+                <Empty>No contract has been generated for this employee.</Empty>
+                <div className="flex items-center gap-2">
+                  <Button onClick={() => void generateContract()} disabled={contractBusy}>
+                    {contractBusy ? 'Generating…' : 'Generate from template'}
+                  </Button>
+                  <Link href="/settings/contract" className="text-xs text-brand-600 hover:underline">
+                    Edit company template
+                  </Link>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Placeholders (name, salary in words, dates…) are filled in from this employee&apos;s
+                  record, and the contract stays editable afterwards.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3 text-sm">
+                <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
+                  <dt className="text-slate-500">Title</dt>
+                  <dd>{contract.title}</dd>
+                  <dt className="text-slate-500">Position</dt>
+                  <dd>{contract.roleTitle}</dd>
+                  <dt className="text-slate-500">Last updated</dt>
+                  <dd>{d(contract.updatedAt)}</dd>
+                </dl>
+                <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
+                  <Link href={`/people/${id}/contract`}>
+                    <Button variant="secondary">Review & edit</Button>
+                  </Link>
+                  <a href={`/api/contracts/${contract.id}/pdf`}>
+                    <Button variant="secondary">Download PDF</Button>
+                  </a>
+                  <Button variant="danger" disabled={contractBusy} onClick={() => void deleteContract()}>
+                    Delete
+                  </Button>
+                </div>
+              </div>
             )}
           </Card>
         )}

@@ -34,6 +34,7 @@ const SETTINGS_NAV: NavItem[] = [
   { href: '/settings/company', label: 'Company', permission: 'company.manage' },
   { href: '/settings/members', label: 'Members', permission: 'members.manage' },
   { href: '/settings/structure', label: 'Departments & locations', permission: 'department.manage' },
+  { href: '/settings/contract', label: 'Contract template', permission: 'document.manage' },
   { href: '/settings/audit', label: 'Audit log', permission: 'audit.read' },
 ];
 

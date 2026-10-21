@@ -9,6 +9,7 @@ import { AuthGuard } from './common/guards/auth.guard';
 import { PermissionsGuard } from './common/guards/permissions.guard';
 import { securityHeaders } from './common/security-headers.middleware';
 import { CompaniesModule } from './companies/companies.module';
+import { ContractsModule } from './contracts/contracts.module';
 import { DepartmentsModule } from './departments/departments.module';
 import { DocumentsModule } from './documents/documents.module';
 import { EmployeesModule } from './employees/employees.module';
@@ -40,6 +41,7 @@ import { TrainingModule } from './training/training.module';
     PayrollModule,
     RecruitmentModule,
     DocumentsModule,
+    ContractsModule,
     ReportsModule,
     PerformanceModule,
     TrainingModule,

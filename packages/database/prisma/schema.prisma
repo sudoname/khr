@@ -108,8 +108,9 @@ model Company {
   updatedAt DateTime  @updatedAt
   deletedAt DateTime?
 
-  memberships Membership[]
-  logo        CompanyLogo?
+  memberships      Membership[]
+  logo             CompanyLogo?
+  contractTemplate ContractTemplate?
 }
 
 // Company logo stored in the database so it survives container rebuilds
@@ -311,6 +312,7 @@ model Employee {
   goals             Goal[]
   performanceReviews PerformanceReview[]
   courseEnrollments CourseEnrollment[]
+  contract          EmploymentContract?
 
   @@unique([companyId, workEmail])
   @@unique([companyId, employeeNo])
@@ -852,6 +854,40 @@ model Document {
 
   @@index([companyId])
   @@index([employeeId])
+}
+
+// ─────────────────────────── Employment contracts ───────────────────────────
+
+/// Company-wide default contract: an ordered list of clauses
+/// (`[{ heading, body }]`) whose bodies may contain `{{placeholder}}` tokens
+/// resolved when a per-employee contract is generated. One per company.
+model ContractTemplate {
+  id          String   @id @default(cuid())
+  companyId   String   @unique
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  title       String   @default("Contract of Employment")
+  clauses     Json
+  updatedById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+/// A generated contract instance: placeholders are resolved at creation time
+/// and the final clause text lives on the employee record, editable until the
+/// PDF is issued. One per employee (re-issue = delete + regenerate or edit).
+model EmploymentContract {
+  id          String   @id @default(cuid())
+  companyId   String
+  employeeId  String   @unique
+  employee    Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+  title       String
+  roleTitle   String
+  clauses     Json
+  createdById String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([companyId])
 }
 
 // ─────────────────────────── Performance ───────────────────────────
