@@ -531,7 +531,11 @@ model PayrollSettings {
   housingPercent   Decimal @db.Decimal(5, 2) @default(25)
   transportPercent Decimal @db.Decimal(5, 2) @default(25)
 
-  pensionEnabled         Boolean @default(true)
+  /// PAYE income-tax deduction. Off by default — companies opt in once they
+  /// are ready to remit; until then payslips show PAYE of 0.
+  payeEnabled Boolean @default(false)
+
+  pensionEnabled         Boolean @default(false)
   pensionEmployeePercent Decimal @db.Decimal(5, 2) @default(8)
   pensionEmployerPercent Decimal @db.Decimal(5, 2) @default(10)
   nhfEnabled             Boolean @default(false)

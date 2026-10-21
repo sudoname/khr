@@ -99,6 +99,8 @@ export interface PayrollComputeSettings {
   basicPercent: Decimal;
   housingPercent: Decimal;
   transportPercent: Decimal;
+  /** When off, PAYE (including bonus tax) is 0 — the company has opted out. */
+  payeEnabled: boolean;
   pensionEnabled: boolean;
   pensionEmployeePercent: Decimal;
   pensionEmployerPercent: Decimal;
@@ -121,6 +123,7 @@ export function toComputeSettings(raw: {
   basicPercent: DecimalValue;
   housingPercent: DecimalValue;
   transportPercent: DecimalValue;
+  payeEnabled?: boolean;
   pensionEnabled: boolean;
   pensionEmployeePercent: DecimalValue;
   pensionEmployerPercent: DecimalValue;
@@ -138,6 +141,10 @@ export function toComputeSettings(raw: {
     basicPercent: new D(raw.basicPercent),
     housingPercent: new D(raw.housingPercent),
     transportPercent: new D(raw.transportPercent),
+    // Statutory behavior when the caller doesn't specify; company settings
+    // (the only app-level caller) always pass the stored value, which
+    // defaults to false for new companies.
+    payeEnabled: raw.payeEnabled ?? true,
     pensionEnabled: raw.pensionEnabled,
     pensionEmployeePercent: new D(raw.pensionEmployeePercent),
     pensionEmployerPercent: new D(raw.pensionEmployerPercent),
@@ -283,6 +290,10 @@ export function computePayslip(
     }
   }
 
+  // Company has not opted into PAYE deduction: income tax (including bonus
+  // tax below) is 0. Reliefs/taxable income stay reported for transparency.
+  if (!settings.payeEnabled) payeAnnual = ZERO;
+
   // One-off bonus: taxed at the employee's marginal rate — PAYE on
   // (annual taxable income + bonus) minus PAYE on annual taxable income
   // alone, charged entirely in the bonus month. Not pensionable, and it
@@ -290,7 +301,7 @@ export function computePayslip(
   const bonus = round2(input.bonus ?? ZERO);
   const otherDeductions = round2(input.otherDeductions ?? ZERO);
   let bonusTax = ZERO;
-  if (bonus.gt(0)) {
+  if (settings.payeEnabled && bonus.gt(0)) {
     const base = taxableAnnual.gt(0) ? taxableAnnual : ZERO;
     bonusTax = annualPayeOn(base.add(bonus), regime).sub(annualPayeOn(base, regime));
   }

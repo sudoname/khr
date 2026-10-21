@@ -278,6 +278,42 @@ describe('computePayslip — one-off bonus and other deductions', () => {
   });
 });
 
+describe('computePayslip — PAYE opt-out (payeEnabled: false)', () => {
+  it('withholds no income tax but still reports taxable income', () => {
+    const slip = slipFor(500_000, 'NTA_2025', { payeEnabled: false });
+    expect(n(slip.paye)).toBe(0);
+    // Reliefs/chargeable income stay on the slip for transparency.
+    expect(n(slip.taxableIncome)).toBe(5_520_000);
+    // Pension still applies per its own flag.
+    expect(n(slip.pensionEmployee)).toBe(40_000);
+    expect(n(slip.netPay)).toBe(500_000 - 40_000);
+  });
+
+  it('charges no marginal tax on bonuses either', () => {
+    const slip = computePayslip(
+      { grossMonthly: new D(500_000), bonus: new D(100_000) },
+      { ...SETTINGS, payeEnabled: false },
+      'NTA_2025',
+    );
+    expect(n(slip.paye)).toBe(0);
+    expect(n(slip.netPay)).toBe(500_000 + 100_000 - 40_000);
+  });
+
+  it('skips the PITA 1% minimum tax as well', () => {
+    const slip = slipFor(20_000, 'PITA_FA2020', {
+      payeEnabled: false,
+      minimumWageMonthly: new D(0),
+    });
+    expect(n(slip.paye)).toBe(0);
+  });
+
+  it('defaults to statutory behavior (PAYE on) when unspecified', () => {
+    // SETTINGS above is built without payeEnabled — existing cases rely on
+    // toComputeSettings falling back to true.
+    expect(SETTINGS.payeEnabled).toBe(true);
+  });
+});
+
 describe('gross-to-net reconciliation', () => {
   const cases: Array<[string, 'PITA_FA2020' | 'NTA_2025', Partial<PayrollComputeSettings>]> = [
     ['100000', 'PITA_FA2020', {}],

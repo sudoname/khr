@@ -7,7 +7,10 @@ export const payrollSettingsSchema = z
     basicPercent: percent.default(50),
     housingPercent: percent.default(25),
     transportPercent: percent.default(25),
-    pensionEnabled: z.boolean().default(true),
+    // PAYE and pension are opt-in: nothing is deducted until the company
+    // switches them on, so new companies see net pay = gross by default.
+    payeEnabled: z.boolean().default(false),
+    pensionEnabled: z.boolean().default(false),
     pensionEmployeePercent: percent.default(8),
     pensionEmployerPercent: percent.default(10),
     nhfEnabled: z.boolean().default(false),

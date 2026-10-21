@@ -40,6 +40,7 @@ interface Settings {
   basicPercent: string | number;
   housingPercent: string | number;
   transportPercent: string | number;
+  payeEnabled: boolean;
   pensionEnabled: boolean;
   pensionEmployeePercent: string | number;
   pensionEmployerPercent: string | number;
@@ -149,6 +150,7 @@ export default function PayrollPage() {
         basicPercent: Number(settings.basicPercent),
         housingPercent: Number(settings.housingPercent),
         transportPercent: Number(settings.transportPercent),
+        payeEnabled: settings.payeEnabled,
         pensionEnabled: settings.pensionEnabled,
         pensionEmployeePercent: Number(settings.pensionEmployeePercent),
         pensionEmployerPercent: Number(settings.pensionEmployerPercent),
@@ -400,6 +402,17 @@ export default function PayrollPage() {
             </div>
 
             <div className="space-y-2">
+              <div className="text-xs font-medium text-slate-500">
+                Deductions (off = nothing withheld; payslips show 0)
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={settings.payeEnabled}
+                  onChange={(e) => setSettings((s) => s && { ...s, payeEnabled: e.target.checked })}
+                />
+                PAYE (income tax) enabled
+              </label>
               <label className="flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
