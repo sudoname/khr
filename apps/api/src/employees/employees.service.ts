@@ -38,6 +38,7 @@ const DIRECTORY_SELECT = {
 const FULL_INCLUDE = {
   department: { select: { id: true, name: true } },
   location: { select: { id: true, name: true } },
+  job: { select: { id: true, title: true, responsibilities: true } },
   manager: { select: { id: true, firstName: true, lastName: true, jobTitle: true, employeeNo: true } },
   emergencyContacts: { select: { id: true, name: true, relationship: true, phone: true, email: true } },
 } as const;
@@ -267,10 +268,19 @@ export class EmployeesService {
 
   // ─────────────────────────── lifecycle ───────────────────────────
 
-  private async validateReferences(input: { departmentId?: string | null; locationId?: string | null; managerId?: string | null }) {
+  private async validateReferences(input: {
+    departmentId?: string | null;
+    locationId?: string | null;
+    managerId?: string | null;
+    jobId?: string | null;
+  }) {
     if (input.departmentId) {
       const dept = await this.db.department.findFirst({ where: { id: input.departmentId, deletedAt: null } });
       if (!dept) throw new BadRequestException('Unknown department');
+    }
+    if (input.jobId) {
+      const job = await this.db.job.findFirst({ where: { id: input.jobId, deletedAt: null } });
+      if (!job) throw new BadRequestException('Unknown job');
     }
     if (input.locationId) {
       const loc = await this.db.location.findFirst({ where: { id: input.locationId, deletedAt: null } });
@@ -321,6 +331,7 @@ export class EmployeesService {
       departmentId: opt(input.departmentId) ?? null,
       locationId: opt(input.locationId) ?? null,
       managerId: opt(input.managerId) ?? null,
+      jobId: opt(input.jobId) ?? null,
     });
 
     const duplicate = await this.db.employee.findFirst({
@@ -356,6 +367,7 @@ export class EmployeesService {
             hireDate: toDate(input.hireDate) as Date,
             probationEndsOn: toDate(input.probationEndsOn) ?? null,
             jobTitle: input.jobTitle,
+            jobId: opt(input.jobId) ?? null,
             grade: opt(input.grade) ?? null,
             departmentId: opt(input.departmentId) ?? null,
             locationId: opt(input.locationId) ?? null,
@@ -397,10 +409,12 @@ export class EmployeesService {
     const departmentId = opt(input.departmentId);
     const locationId = opt(input.locationId);
     const managerId = opt(input.managerId);
+    const jobId = opt(input.jobId);
     await this.validateReferences({
       departmentId: departmentId ?? null,
       locationId: locationId ?? null,
       managerId: managerId ?? null,
+      jobId: jobId ?? null,
     });
 
     if (managerId !== undefined && managerId !== existing.managerId) {
@@ -441,6 +455,7 @@ export class EmployeesService {
         ...(input.hireDate !== undefined ? { hireDate: toDate(input.hireDate) as Date } : {}),
         ...(input.probationEndsOn !== undefined ? { probationEndsOn: toDate(input.probationEndsOn) } : {}),
         ...(input.jobTitle !== undefined ? { jobTitle: input.jobTitle } : {}),
+        ...(jobId !== undefined ? { jobId } : {}),
         ...(input.grade !== undefined ? { grade: opt(input.grade) } : {}),
         ...(departmentId !== undefined ? { departmentId } : {}),
         ...(locationId !== undefined ? { locationId } : {}),

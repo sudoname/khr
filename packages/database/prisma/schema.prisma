@@ -212,6 +212,24 @@ model Department {
   @@index([companyId])
 }
 
+/// Company job catalog: each job has a title and defined responsibilities.
+/// Employees link to a job; profiles and the {{responsibilities}} contract
+/// placeholder read the responsibilities from here.
+model Job {
+  id               String    @id @default(cuid())
+  companyId        String
+  title            String
+  responsibilities Json // string[]
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  deletedAt        DateTime?
+
+  employees Employee[]
+
+  @@unique([companyId, title])
+  @@index([companyId])
+}
+
 // ─────────────────────────────── Employees ───────────────────────────────
 
 enum EmploymentStatus {
@@ -290,6 +308,8 @@ model Employee {
   probationEndsOn DateTime?        @db.Date
   terminationDate DateTime?        @db.Date
   jobTitle        String
+  jobId           String?
+  job             Job?             @relation(fields: [jobId], references: [id], onDelete: SetNull)
   grade           String?
   departmentId    String?
   department      Department?      @relation(fields: [departmentId], references: [id], onDelete: SetNull)

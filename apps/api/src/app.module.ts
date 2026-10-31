@@ -15,6 +15,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { EmployeesModule } from './employees/employees.module';
 import { HealthModule } from './health/health.module';
 import { InfraModule } from './infra/infra.module';
+import { JobsModule } from './jobs/jobs.module';
 import { LeaveModule } from './leave/leave.module';
 import { LocationsModule } from './locations/locations.module';
 import { OrgModule } from './org/org.module';
@@ -34,6 +35,7 @@ import { TrainingModule } from './training/training.module';
     CompaniesModule,
     DepartmentsModule,
     LocationsModule,
+    JobsModule,
     EmployeesModule,
     OrgModule,
     LeaveModule,

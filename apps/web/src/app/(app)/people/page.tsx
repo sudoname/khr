@@ -36,6 +36,7 @@ const EMPTY_CREATE = {
   lastName: '',
   workEmail: '',
   jobTitle: '',
+  jobId: '',
   hireDate: '',
   employmentType: 'FULL_TIME',
   departmentId: '',
@@ -50,6 +51,7 @@ export default function PeoplePage() {
   const [data, setData] = useState<ListResult | null>(null);
   const [departments, setDepartments] = useState<Option[]>([]);
   const [locations, setLocations] = useState<Option[]>([]);
+  const [jobs, setJobs] = useState<{ id: string; title: string }[]>([]);
   const [q, setQ] = useState('');
   const [departmentId, setDepartmentId] = useState('');
   const [locationId, setLocationId] = useState('');
@@ -88,6 +90,7 @@ export default function PeoplePage() {
   useEffect(() => {
     api.get<Option[]>('/departments').then(setDepartments).catch(() => setDepartments([]));
     api.get<Option[]>('/locations').then(setLocations).catch(() => setLocations([]));
+    api.get<{ id: string; title: string }[]>('/jobs').then(setJobs).catch(() => setJobs([]));
   }, []);
 
   const setCF = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
@@ -293,6 +296,30 @@ export default function PeoplePage() {
             <Field label="Work email">
               <Input type="email" value={createForm.workEmail} onChange={setCF('workEmail')} required />
             </Field>
+            {jobs.length > 0 && (
+              <Field label="Job (from catalog)">
+                <Select
+                  value={createForm.jobId}
+                  onChange={(e) => {
+                    const job = jobs.find((j) => j.id === e.target.value);
+                    // Picking a catalog job links the defined responsibilities
+                    // and fills the title (still editable).
+                    setCreateForm((f) => ({
+                      ...f,
+                      jobId: e.target.value,
+                      jobTitle: job ? job.title : f.jobTitle,
+                    }));
+                  }}
+                >
+                  <option value="">None (free-text title)</option>
+                  {jobs.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {j.title}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Field label="Job title">
                 <Input value={createForm.jobTitle} onChange={setCF('jobTitle')} required />

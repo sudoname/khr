@@ -10,6 +10,7 @@ export const CONTRACT_PLACEHOLDERS = [
   'employeeNo',
   'employeeAddress',
   'jobTitle',
+  'responsibilities', // numbered list from the employee's job catalog entry
   'startDate',
   'salaryFigure',
   'salaryWords',

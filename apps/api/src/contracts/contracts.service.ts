@@ -96,7 +96,7 @@ export class ContractsService {
   async createForEmployee(employeeId: string) {
     const employee = await this.db.employee.findFirst({
       where: { id: employeeId, deletedAt: null },
-      include: { location: true },
+      include: { location: true, job: { select: { title: true, responsibilities: true } } },
     });
     if (!employee) throw new NotFoundException('Employee not found');
 
@@ -119,12 +119,18 @@ export class ContractsService {
 
     const loc = employee.location ?? fallbackLocation;
     const employeeName = `${employee.firstName} ${employee.lastName}`;
+    // Numbered list from the employee's job catalog entry, e.g.
+    // "(1) Prune palms; (2) Harvest fruit bunches."
+    const jobResponsibilities = (employee.job?.responsibilities as string[] | undefined) ?? [];
     const values: Record<string, string> = {
       employeeName,
       employeeNo: employee.employeeNo,
       employeeAddress:
         joinAddress([employee.addressLine1, employee.city, employee.state, employee.country]) ?? '—',
       jobTitle: employee.jobTitle,
+      responsibilities: jobResponsibilities.length
+        ? jobResponsibilities.map((r, i) => `(${i + 1}) ${r.replace(/\.?\s*$/, '')}`).join('; ') + '.'
+        : '—',
       startDate: longDate(employee.hireDate),
       salaryFigure: compensation
         ? `\u20a6${Number(compensation.baseSalary).toLocaleString('en-NG', {

@@ -49,6 +49,8 @@ export const employeeCreateSchema = z.object({
   probationEndsOn: isoDate.optional().or(z.literal('')),
   departmentId: z.string().optional().or(z.literal('')),
   jobTitle: z.string().trim().min(1).max(120),
+  /** Link to the company job catalog (defined responsibilities). */
+  jobId: z.string().optional().or(z.literal('')),
   grade: z.string().trim().max(40).optional().or(z.literal('')),
   locationId: z.string().optional().or(z.literal('')),
   managerId: z.string().optional().or(z.literal('')),

@@ -8,6 +8,18 @@ export const departmentCreateSchema = z.object({
 });
 export const departmentUpdateSchema = departmentCreateSchema.partial();
 
+/** Job catalog entry: a title with its defined responsibilities. */
+export const jobCreateSchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  responsibilities: z
+    .array(z.string().trim().min(1, 'Responsibility cannot be empty').max(500))
+    .min(1, 'Define at least one responsibility')
+    .max(30),
+});
+export const jobUpdateSchema = jobCreateSchema.partial();
+export type JobCreateInput = z.infer<typeof jobCreateSchema>;
+export type JobUpdateInput = z.infer<typeof jobUpdateSchema>;
+
 export const locationCreateSchema = z.object({
   name: z.string().trim().min(1).max(120),
   addressLine1: z.string().trim().max(200).optional().or(z.literal('')),

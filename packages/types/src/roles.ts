@@ -45,6 +45,8 @@ export const PERMISSIONS = [
   'department.read',
   'department.manage',
   'location.manage',
+  'job.read',            // job catalog (titles + responsibilities)
+  'job.manage',
   'org.read',
   'org.manage',
   // employees
@@ -97,6 +99,7 @@ const EMPLOYEE_BASE: Permission[] = [
   'employee.read',
   'employee.read.self',
   'department.read',
+  'job.read',
   'org.read',
   'leave.request.self',
   'attendance.clock.self',
@@ -115,6 +118,7 @@ export const ROLE_PERMISSIONS: Record<CompanyRole, Permission[]> = {
     'audit.read',
     'department.manage',
     'location.manage',
+    'job.manage',
     'org.manage',
     'employee.write',
     'employee.import',

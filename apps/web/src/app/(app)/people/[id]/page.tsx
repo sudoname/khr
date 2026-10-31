@@ -36,6 +36,7 @@ interface EmployeeDetail {
   probationEndsOn?: string | null;
   terminationDate?: string | null;
   grade?: string | null;
+  job?: { id: string; title: string; responsibilities: string[] } | null;
   annualRentDeclared?: string | null;
   // Restricted fields: the API nulls these unless the viewer is the employee
   // themself or holds compensation.read.
@@ -78,6 +79,7 @@ export default function EmployeeProfilePage() {
   const { id } = useParams<{ id: string }>();
   const { can, me } = useSession();
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
+  const [jobs, setJobs] = useState<{ id: string; title: string }[]>([]);
   const [history, setHistory] = useState<EmploymentEvent[] | null>(null);
   const [comp, setComp] = useState<Compensation[] | null>(null);
   const [error, setError] = useState('');
@@ -111,6 +113,12 @@ export default function EmployeeProfilePage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    // Catalog is only needed for the edit modal's job selector.
+    if (!can('employee.write')) return;
+    api.get<{ id: string; title: string }[]>('/jobs').then(setJobs).catch(() => setJobs([]));
+  }, [can]);
 
   useEffect(() => {
     if (can('compensation.read')) {
@@ -166,6 +174,7 @@ export default function EmployeeProfilePage() {
         lastName: emp.lastName,
         preferredName: emp.preferredName ?? '',
         jobTitle: emp.jobTitle,
+        jobId: emp.job?.id ?? '',
         grade: emp.grade ?? '',
         phone: emp.phone ?? '',
         personalEmail: emp.personalEmail ?? '',
@@ -363,6 +372,16 @@ export default function EmployeeProfilePage() {
               </>
             )}
           </dl>
+          {isFull && emp.job && emp.job.responsibilities.length > 0 && (
+            <div className="mt-3 border-t border-slate-100 pt-3">
+              <div className="mb-1 text-xs font-medium text-slate-500">Responsibilities · {emp.job.title}</div>
+              <ol className="list-inside list-decimal space-y-1 text-sm">
+                {emp.job.responsibilities.map((r, i) => (
+                  <li key={i}>{r}</li>
+                ))}
+              </ol>
+            </div>
+          )}
           {!isFull && (
             <p className="mt-3 text-xs text-slate-400">
               You&apos;re seeing the directory view. Full details are visible to HR and this person&apos;s managers.
@@ -586,14 +605,36 @@ export default function EmployeeProfilePage() {
                 <Input value={form.lastName ?? ''} onChange={setF('lastName')} required />
               </Field>
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Preferred name">
-                <Input value={form.preferredName ?? ''} onChange={setF('preferredName')} />
+            <Field label="Preferred name">
+              <Input value={form.preferredName ?? ''} onChange={setF('preferredName')} />
+            </Field>
+            {jobs.length > 0 && (
+              <Field label="Job (from catalog)">
+                <Select
+                  value={form.jobId ?? ''}
+                  onChange={(e) => {
+                    const job = jobs.find((j) => j.id === e.target.value);
+                    // Picking a catalog job links the defined responsibilities
+                    // and fills the title (still editable).
+                    setForm((f) => ({
+                      ...f,
+                      jobId: e.target.value,
+                      jobTitle: job ? job.title : f.jobTitle,
+                    }));
+                  }}
+                >
+                  <option value="">None (free-text title)</option>
+                  {jobs.map((j) => (
+                    <option key={j.id} value={j.id}>
+                      {j.title}
+                    </option>
+                  ))}
+                </Select>
               </Field>
-              <Field label="Job title">
-                <Input value={form.jobTitle ?? ''} onChange={setF('jobTitle')} required />
-              </Field>
-            </div>
+            )}
+            <Field label="Job title">
+              <Input value={form.jobTitle ?? ''} onChange={setF('jobTitle')} required />
+            </Field>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Grade">
                 <Input value={form.grade ?? ''} onChange={setF('grade')} />
