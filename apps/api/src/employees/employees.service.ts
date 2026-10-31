@@ -165,12 +165,23 @@ export class EmployeesService {
     return { ...employee, bvn: null, bankName: null, bankAccountNumber: null, annualRentDeclared: null };
   }
 
+  /** Employees without an assigned location default to the company's primary
+   *  (first-created) location — same fallback the contract generator uses. */
+  private async primaryLocation() {
+    return this.db.location.findFirst({
+      where: { deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true, name: true },
+    });
+  }
+
   async get(id: string) {
     const employee = await this.db.employee.findFirst({
       where: { id, deletedAt: null },
       include: FULL_INCLUDE,
     });
     if (!employee) throw new NotFoundException('Employee not found');
+    if (!employee.location) employee.location = await this.primaryLocation();
     if (await this.canSeeFullProfile(id)) return this.stripBankDetails(employee, id);
     // Directory-level projection for everyone else. Salary is NEVER here —
     // compensation lives behind its own endpoints and permission.
@@ -199,6 +210,7 @@ export class EmployeesService {
       include: FULL_INCLUDE,
     });
     if (!employee) throw new NotFoundException('Employee record not found');
+    if (!employee.location) employee.location = await this.primaryLocation();
     return employee;
   }
 

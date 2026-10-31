@@ -80,6 +80,7 @@ export default function EmployeeProfilePage() {
   const { can, me } = useSession();
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [jobs, setJobs] = useState<{ id: string; title: string }[]>([]);
+  const [locations, setLocations] = useState<{ id: string; name: string }[]>([]);
   const [history, setHistory] = useState<EmploymentEvent[] | null>(null);
   const [comp, setComp] = useState<Compensation[] | null>(null);
   const [error, setError] = useState('');
@@ -115,9 +116,10 @@ export default function EmployeeProfilePage() {
   }, [load]);
 
   useEffect(() => {
-    // Catalog is only needed for the edit modal's job selector.
+    // Catalogs are only needed for the edit modal's job/location selectors.
     if (!can('employee.write')) return;
     api.get<{ id: string; title: string }[]>('/jobs').then(setJobs).catch(() => setJobs([]));
+    api.get<{ id: string; name: string }[]>('/locations').then(setLocations).catch(() => setLocations([]));
   }, [can]);
 
   useEffect(() => {
@@ -175,6 +177,7 @@ export default function EmployeeProfilePage() {
         preferredName: emp.preferredName ?? '',
         jobTitle: emp.jobTitle,
         jobId: emp.job?.id ?? '',
+        locationId: emp.location?.id ?? '',
         grade: emp.grade ?? '',
         phone: emp.phone ?? '',
         personalEmail: emp.personalEmail ?? '',
@@ -337,7 +340,7 @@ export default function EmployeeProfilePage() {
           <dl className="grid grid-cols-2 gap-x-4 gap-y-2 text-sm">
             <dt className="text-slate-500">Department</dt>
             <dd>{emp.department?.name ?? '—'}</dd>
-            <dt className="text-slate-500">Location</dt>
+            <dt className="text-slate-500">Primary location</dt>
             <dd>{emp.location?.name ?? '—'}</dd>
             <dt className="text-slate-500">Manager</dt>
             <dd>
@@ -636,6 +639,18 @@ export default function EmployeeProfilePage() {
             <Field label="Job title">
               <Input value={form.jobTitle ?? ''} onChange={setF('jobTitle')} required />
             </Field>
+            {locations.length > 0 && (
+              <Field label="Primary location">
+                <Select value={form.locationId ?? ''} onChange={setF('locationId')}>
+                  <option value="">Company default (first location)</option>
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>
+                      {l.name}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+            )}
             <div className="grid grid-cols-2 gap-3">
               <Field label="Grade">
                 <Input value={form.grade ?? ''} onChange={setF('grade')} />
