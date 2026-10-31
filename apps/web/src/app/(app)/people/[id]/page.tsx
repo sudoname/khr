@@ -6,6 +6,7 @@ import { useParams } from 'next/navigation';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Alert, Badge, Button, Card, Empty, Field, Input, Modal, Select, Spinner, Table, statusTone } from '@/components/ui';
+import { SignaturePad } from '@/components/signature-pad';
 
 interface EmployeeDetail {
   id: string;
@@ -30,6 +31,7 @@ interface EmployeeDetail {
   country?: string | null;
   dateOfBirth?: string | null;
   employmentType?: string;
+  livesOnsite?: boolean;
   hireDate?: string;
   probationEndsOn?: string | null;
   terminationDate?: string | null;
@@ -65,13 +67,16 @@ interface ContractSummary {
   title: string;
   roleTitle: string;
   updatedAt: string;
+  signedAt: string | null;
+  signedName: string | null;
+  signatureHash: string | null;
 }
 
 const d = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
 export default function EmployeeProfilePage() {
   const { id } = useParams<{ id: string }>();
-  const { can } = useSession();
+  const { can, me } = useSession();
   const [emp, setEmp] = useState<EmployeeDetail | null>(null);
   const [history, setHistory] = useState<EmploymentEvent[] | null>(null);
   const [comp, setComp] = useState<Compensation[] | null>(null);
@@ -83,8 +88,13 @@ export default function EmployeeProfilePage() {
   const [form, setForm] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState(false);
   const [modalError, setModalError] = useState('');
+  const [signOpen, setSignOpen] = useState(false);
+  const [signatureData, setSignatureData] = useState<string | null>(null);
+  const [signBusy, setSignBusy] = useState(false);
+  const [signError, setSignError] = useState('');
 
   const isFull = emp?.hireDate !== undefined;
+  const isSelf = !!me?.employee && me.employee.id === id;
 
   const load = useCallback(async () => {
     try {
@@ -109,12 +119,12 @@ export default function EmployeeProfilePage() {
   }, [id, can]);
 
   useEffect(() => {
-    if (!can('document.manage')) return;
+    if (!can('document.manage') && me?.employee?.id !== id) return;
     api
       .get<ContractSummary>(`/contracts/employee/${id}`)
       .then(setContract)
       .catch(() => setContract(null)); // 404 = no contract generated yet
-  }, [id, can]);
+  }, [id, can, me]);
 
   async function generateContract() {
     setError('');
@@ -180,7 +190,14 @@ export default function EmployeeProfilePage() {
     } else if (kind === 'rehire' && emp) {
       setForm({ hireDate: new Date().toISOString().slice(0, 10), jobTitle: emp.jobTitle });
     } else if (kind === 'comp') {
-      setForm({ effectiveDate: new Date().toISOString().slice(0, 10), baseSalary: '', currency: 'NGN', payFrequency: 'MONTHLY', note: '' });
+      setForm({
+        effectiveDate: new Date().toISOString().slice(0, 10),
+        baseSalary: '',
+        currency: 'NGN',
+        // Migrant farm workers are typically paid once a year.
+        payFrequency: emp?.employmentType === 'MIGRANT' ? 'ANNUAL' : 'MONTHLY',
+        note: '',
+      });
     } else if (kind === 'rent' && emp) {
       setForm({ annualRentDeclared: emp.annualRentDeclared ?? '' });
     }
@@ -189,6 +206,42 @@ export default function EmployeeProfilePage() {
 
   const setF = (key: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  async function submitSign(e: React.FormEvent) {
+    e.preventDefault();
+    if (!contract || !signatureData) return;
+    setSignError('');
+    setSignBusy(true);
+    try {
+      // GPS is best-effort evidence: ask once, give up quietly after 5s or on denial.
+      const gps = await new Promise<GeolocationPosition | null>((resolve) => {
+        if (!navigator.geolocation) return resolve(null);
+        navigator.geolocation.getCurrentPosition(
+          (p) => resolve(p),
+          () => resolve(null),
+          { timeout: 5000, maximumAge: 60_000 },
+        );
+      });
+      const signed = await api.post<ContractSummary>(`/contracts/${contract.id}/sign`, {
+        signatureImage: signatureData,
+        ...(gps
+          ? {
+              latitude: gps.coords.latitude,
+              longitude: gps.coords.longitude,
+              accuracy: Math.min(gps.coords.accuracy, 100_000),
+            }
+          : {}),
+      });
+      setContract(signed);
+      setSignOpen(false);
+      setSignatureData(null);
+      setNotice('Contract signed. The signed copy is now locked and available as a PDF.');
+    } catch (err) {
+      setSignError(err instanceof Error ? err.message : 'Failed to sign contract');
+    } finally {
+      setSignBusy(false);
+    }
+  }
 
   async function submitModal(e: React.FormEvent) {
     e.preventDefault();
@@ -291,6 +344,12 @@ export default function EmployeeProfilePage() {
               <>
                 <dt className="text-slate-500">Employment type</dt>
                 <dd>{emp.employmentType?.replace('_', '-') ?? '—'}</dd>
+                {emp.livesOnsite && (
+                  <>
+                    <dt className="text-slate-500">Housing</dt>
+                    <dd>Lives on-site</dd>
+                  </>
+                )}
                 <dt className="text-slate-500">Hire date</dt>
                 <dd>{d(emp.hireDate)}</dd>
                 {emp.terminationDate && (
@@ -423,26 +482,30 @@ export default function EmployeeProfilePage() {
           </Card>
         )}
 
-        {can('document.manage') && isFull && (
+        {(can('document.manage') || isSelf) && isFull && (
           <Card title="Employment contract">
             {contract === undefined ? (
               <Spinner />
             ) : contract === null ? (
-              <div className="space-y-3">
-                <Empty>No contract has been generated for this employee.</Empty>
-                <div className="flex items-center gap-2">
-                  <Button onClick={() => void generateContract()} disabled={contractBusy}>
-                    {contractBusy ? 'Generating…' : 'Generate from template'}
-                  </Button>
-                  <Link href="/settings/contract" className="text-xs text-brand-600 hover:underline">
-                    Edit company template
-                  </Link>
+              can('document.manage') ? (
+                <div className="space-y-3">
+                  <Empty>No contract has been generated for this employee.</Empty>
+                  <div className="flex items-center gap-2">
+                    <Button onClick={() => void generateContract()} disabled={contractBusy}>
+                      {contractBusy ? 'Generating…' : 'Generate from template'}
+                    </Button>
+                    <Link href="/settings/contract" className="text-xs text-brand-600 hover:underline">
+                      Edit company template
+                    </Link>
+                  </div>
+                  <p className="text-xs text-slate-400">
+                    Placeholders (name, salary in words, dates…) are filled in from this employee&apos;s
+                    record, and the contract stays editable afterwards.
+                  </p>
                 </div>
-                <p className="text-xs text-slate-400">
-                  Placeholders (name, salary in words, dates…) are filled in from this employee&apos;s
-                  record, and the contract stays editable afterwards.
-                </p>
-              </div>
+              ) : (
+                <Empty>No contract has been issued to you yet. HR will generate it.</Empty>
+              )
             ) : (
               <div className="space-y-3 text-sm">
                 <dl className="grid grid-cols-2 gap-x-4 gap-y-2">
@@ -452,18 +515,59 @@ export default function EmployeeProfilePage() {
                   <dd>{contract.roleTitle}</dd>
                   <dt className="text-slate-500">Last updated</dt>
                   <dd>{d(contract.updatedAt)}</dd>
+                  <dt className="text-slate-500">Status</dt>
+                  <dd>
+                    {contract.signedAt ? (
+                      <Badge tone="green">Signed</Badge>
+                    ) : (
+                      <Badge tone="amber">Awaiting signature</Badge>
+                    )}
+                  </dd>
+                  {contract.signedAt && (
+                    <>
+                      <dt className="text-slate-500">Signed by</dt>
+                      <dd>
+                        {contract.signedName} on {d(contract.signedAt)}
+                        {contract.signatureHash && (
+                          <div className="font-mono text-xs text-slate-400">
+                            SHA-256 {contract.signatureHash.slice(0, 16)}…
+                          </div>
+                        )}
+                      </dd>
+                    </>
+                  )}
                 </dl>
                 <div className="flex flex-wrap gap-2 border-t border-slate-100 pt-3">
-                  <Link href={`/people/${id}/contract`}>
-                    <Button variant="secondary">Review & edit</Button>
-                  </Link>
+                  {isSelf && !contract.signedAt && (
+                    <Button
+                      onClick={() => {
+                        setSignError('');
+                        setSignatureData(null);
+                        setSignOpen(true);
+                      }}
+                    >
+                      Sign contract
+                    </Button>
+                  )}
+                  {can('document.manage') && !contract.signedAt && (
+                    <Link href={`/people/${id}/contract`}>
+                      <Button variant="secondary">Review & edit</Button>
+                    </Link>
+                  )}
                   <a href={`/api/contracts/${contract.id}/pdf`}>
                     <Button variant="secondary">Download PDF</Button>
                   </a>
-                  <Button variant="danger" disabled={contractBusy} onClick={() => void deleteContract()}>
-                    Delete
-                  </Button>
+                  {can('document.manage') && !contract.signedAt && (
+                    <Button variant="danger" disabled={contractBusy} onClick={() => void deleteContract()}>
+                      Delete
+                    </Button>
+                  )}
                 </div>
+                {contract.signedAt && (
+                  <p className="text-xs text-slate-400">
+                    Signed contracts are locked: they can no longer be edited or deleted.
+                  </p>
+                )}
               </div>
             )}
           </Card>
@@ -624,6 +728,30 @@ export default function EmployeeProfilePage() {
               </Button>
               <Button type="submit" disabled={busy}>
                 {busy ? 'Saving…' : 'Save declaration'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {signOpen && contract && (
+        <Modal title="Sign your employment contract" onClose={() => setSignOpen(false)}>
+          <form onSubmit={submitSign} className="space-y-3">
+            {signError && <Alert kind="error">{signError}</Alert>}
+            <Alert kind="info">
+              By signing you accept the terms of “{contract.title}”. Your signature is recorded with the
+              date, your IP address and — if you allow it — your GPS location, and the contract is then
+              locked. Download and read the PDF before signing.
+            </Alert>
+            <Field label="Draw your signature">
+              <SignaturePad onChange={setSignatureData} />
+            </Field>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setSignOpen(false)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={signBusy || !signatureData}>
+                {signBusy ? 'Signing…' : 'Sign contract'}
               </Button>
             </div>
           </form>

@@ -4,10 +4,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { createHash } from 'node:crypto';
 import {
   DEFAULT_CONTRACT_CLAUSES,
   DEFAULT_CONTRACT_TITLE,
   type ContractClause,
+  type ContractSignInput,
   type ContractTemplateUpdateInput,
   type ContractUpdateInput,
 } from '@peopleflow/types';
@@ -159,9 +161,78 @@ export class ContractsService {
     return contract;
   }
 
+  /**
+   * On-screen signing by the employee themself — not HR, not even an admin:
+   * a signature must come from the worker's own session. Date, IP and the
+   * tamper-evidence hash are derived server-side; GPS comes from the browser
+   * when the worker grants it. Signing freezes the contract.
+   */
+  async sign(id: string, input: ContractSignInput) {
+    const contract = await this.db.employmentContract.findFirst({
+      where: { id },
+      include: { employee: { select: { id: true, firstName: true, lastName: true } } },
+    });
+    if (!contract) throw new NotFoundException('Contract not found');
+    if (this.ctx.employeeIdOrNull !== contract.employeeId)
+      throw new ForbiddenException('Only the employee named on the contract can sign it');
+    if (contract.signedAt) throw new ConflictException('This contract has already been signed');
+
+    const signedAt = new Date();
+    const signatureIp = this.ctx.ip ?? null;
+    const signedName = `${contract.employee.firstName} ${contract.employee.lastName}`;
+    // Covers the agreed content AND the evidence trail: any later change to
+    // either no longer matches the stored hash.
+    const signatureHash = createHash('sha256')
+      .update(
+        JSON.stringify({
+          contractId: contract.id,
+          employeeId: contract.employeeId,
+          title: contract.title,
+          roleTitle: contract.roleTitle,
+          clauses: contract.clauses,
+          signedName,
+          signedAt: signedAt.toISOString(),
+          signatureIp,
+          latitude: input.latitude ?? null,
+          longitude: input.longitude ?? null,
+          signatureImage: input.signatureImage,
+        }),
+      )
+      .digest('hex');
+
+    const signed = await this.db.employmentContract.update({
+      where: { id },
+      data: {
+        signedAt,
+        signedName,
+        signatureImage: input.signatureImage,
+        signatureHash,
+        signatureIp,
+        signatureLat: input.latitude ?? null,
+        signatureLng: input.longitude ?? null,
+        signatureAccuracy: input.accuracy ?? null,
+      },
+    });
+    await this.audit.log('contract.signed', {
+      entity: 'EmploymentContract',
+      entityId: id,
+      meta: {
+        employeeId: contract.employeeId,
+        signatureHash,
+        ip: signatureIp,
+        latitude: input.latitude ?? null,
+        longitude: input.longitude ?? null,
+        accuracy: input.accuracy ?? null,
+      },
+    });
+    return signed;
+  }
+
   async update(id: string, input: ContractUpdateInput) {
     const existing = await this.db.employmentContract.findFirst({ where: { id } });
     if (!existing) throw new NotFoundException('Contract not found');
+    if (existing.signedAt)
+      throw new ConflictException('This contract has been signed and can no longer be edited');
     const contract = await this.db.employmentContract.update({
       where: { id },
       data: {
@@ -181,6 +252,8 @@ export class ContractsService {
   async remove(id: string) {
     const existing = await this.db.employmentContract.findFirst({ where: { id } });
     if (!existing) throw new NotFoundException('Contract not found');
+    if (existing.signedAt)
+      throw new ConflictException('This contract has been signed and can no longer be deleted');
     await this.db.employmentContract.delete({ where: { id } });
     await this.audit.log('contract.deleted', {
       entity: 'EmploymentContract',
@@ -226,6 +299,26 @@ export class ContractsService {
       ]),
       startDate: longDate(contract.employee.hireDate),
       clauses: contract.clauses as unknown as ContractClause[],
+      signature:
+        contract.signedAt && contract.signatureImage && contract.signatureHash
+          ? {
+              image: contract.signatureImage,
+              signedName: contract.signedName ?? employeeName,
+              signedAtDisplay: `${longDate(contract.signedAt)}, ${contract.signedAt
+                .toISOString()
+                .slice(11, 16)} UTC`,
+              hash: contract.signatureHash,
+              ip: contract.signatureIp,
+              gps:
+                contract.signatureLat != null && contract.signatureLng != null
+                  ? `${Number(contract.signatureLat).toFixed(6)}, ${Number(contract.signatureLng).toFixed(6)}${
+                      contract.signatureAccuracy != null
+                        ? ` (\u00b1${Math.round(Number(contract.signatureAccuracy))}m)`
+                        : ''
+                    }`
+                  : null,
+            }
+          : undefined,
     });
     await this.audit.log('contract.downloaded', { entity: 'EmploymentContract', entityId: id });
     return { buffer, filename: `contract-${contract.employee.employeeNo}.pdf` };

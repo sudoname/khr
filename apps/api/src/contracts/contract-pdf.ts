@@ -18,6 +18,15 @@ export interface ContractPdfData {
   employeeAddress: string | null;
   startDate: string; // display-formatted, e.g. "5 January 2026"
   clauses: { heading: string; body: string }[];
+  /** Present once the employee has signed on-screen. */
+  signature?: {
+    image: string; // PNG data URL from the signature pad
+    signedName: string;
+    signedAtDisplay: string;
+    hash: string;
+    ip: string | null;
+    gps: string | null;
+  };
 }
 
 const MARGIN = 56;
@@ -147,15 +156,41 @@ export function renderContractPdf(data: ContractPdfData): Promise<Buffer> {
 
     const COL2_X = MARGIN + CONTENT_W / 2 + 12;
     const COL_W = CONTENT_W / 2 - 24;
-    const signatory = (x: number, party: string, name: string) => {
+    const signatory = (x: number, party: string, name: string, date?: string) => {
       doc.font('Helvetica-Bold').fontSize(9).fillColor(SLATE).text(party.toUpperCase(), x, y, { lineBreak: false });
       doc.moveTo(x, y + 40).lineTo(x + COL_W, y + 40).lineWidth(0.75).strokeColor(DARK).stroke();
       doc.font('Helvetica').fontSize(9).fillColor(DARK).text(`Name: ${name}`, x, y + 46, { lineBreak: false });
-      doc.text('Date: ____________________', x, y + 60, { lineBreak: false });
+      doc.text(`Date: ${date ?? '____________________'}`, x, y + 60, { lineBreak: false });
     };
     signatory(MARGIN, 'For the Employer (signature)', '____________________________');
-    signatory(COL2_X, 'Employee (signature)', data.employeeName);
+    const sig = data.signature;
+    if (sig) {
+      // Drawn signature image sits above the employee's signature line.
+      try {
+        const png = Buffer.from(sig.image.slice(sig.image.indexOf(',') + 1), 'base64');
+        doc.image(png, COL2_X, y + 2, { fit: [COL_W, 36] });
+      } catch {
+        // Corrupt stored image: fall back to the bare signature line.
+      }
+    }
+    signatory(COL2_X, 'Employee (signature)', sig?.signedName ?? data.employeeName, sig?.signedAtDisplay);
     y += 86;
+
+    if (sig) {
+      ensureSpace(70);
+      paragraph('DIGITAL SIGNATURE RECORD', { font: 'Helvetica-Bold', size: 9, color: SLATE });
+      y += 4;
+      const evidence = [
+        `Signed on screen by ${sig.signedName} on ${sig.signedAtDisplay}.`,
+        `SHA-256: ${sig.hash}`,
+        sig.ip ? `IP address: ${sig.ip}` : null,
+        sig.gps ? `GPS: ${sig.gps}` : null,
+      ]
+        .filter(Boolean)
+        .join('\n');
+      paragraph(evidence, { size: 8, color: SLATE });
+      y += 14;
+    }
 
     paragraph('WITNESSES', { font: 'Helvetica-Bold', size: 9, color: SLATE });
     y += 8;

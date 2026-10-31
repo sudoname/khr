@@ -1,7 +1,15 @@
 import { z } from 'zod';
 
 export const EMPLOYMENT_STATUSES = ['ACTIVE', 'ON_LEAVE', 'SUSPENDED', 'TERMINATED'] as const;
-export const EMPLOYMENT_TYPES = ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERN', 'TEMPORARY'] as const;
+export const EMPLOYMENT_TYPES = [
+  'FULL_TIME',
+  'PART_TIME',
+  'CONTRACT',
+  'INTERN',
+  'TEMPORARY',
+  // Seasonal/migrant farm workers: typically paid annually and housed on-site.
+  'MIGRANT',
+] as const;
 
 const isoDate = z
   .string()
@@ -35,6 +43,8 @@ export const employeeCreateSchema = z.object({
     .optional()
     .or(z.literal('')),
   employmentType: z.enum(EMPLOYMENT_TYPES).default('FULL_TIME'),
+  /** Worker is housed at the work site (e.g. migrant farm workers). */
+  livesOnsite: z.boolean().optional(),
   hireDate: isoDate,
   probationEndsOn: isoDate.optional().or(z.literal('')),
   departmentId: z.string().optional().or(z.literal('')),

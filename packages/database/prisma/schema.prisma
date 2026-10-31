@@ -227,6 +227,8 @@ enum EmploymentType {
   CONTRACT
   INTERN
   TEMPORARY
+  /// Seasonal/migrant farm workers: typically paid annually and housed on-site.
+  MIGRANT
 }
 
 enum Gender {
@@ -282,6 +284,8 @@ model Employee {
   termsAcceptedAt        DateTime?
   status          EmploymentStatus @default(ACTIVE)
   employmentType  EmploymentType   @default(FULL_TIME)
+  /// Worker is housed at the work site (e.g. migrant farm workers).
+  livesOnsite     Boolean          @default(false)
   hireDate        DateTime         @db.Date
   probationEndsOn DateTime?        @db.Date
   terminationDate DateTime?        @db.Date
@@ -890,6 +894,18 @@ model EmploymentContract {
   createdById String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+
+  /// On-screen signature evidence. Only the employee themself may sign; a
+  /// signed contract becomes immutable. The hash is a SHA-256 over the
+  /// contract content + signature image + metadata, computed server-side.
+  signedAt          DateTime?
+  signedName        String?
+  signatureImage    String? // PNG data URL captured from the signature pad
+  signatureHash     String?
+  signatureIp       String?
+  signatureLat      Decimal?  @db.Decimal(9, 6)
+  signatureLng      Decimal?  @db.Decimal(9, 6)
+  signatureAccuracy Decimal?  @db.Decimal(8, 2) // metres, from the browser
 
   @@index([companyId])
 }

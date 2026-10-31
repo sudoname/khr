@@ -40,6 +40,24 @@ export const contractUpdateSchema = z.object({
 });
 export type ContractUpdateInput = z.infer<typeof contractUpdateSchema>;
 
+/**
+ * On-screen signature submission. The image is a PNG data URL drawn on the
+ * signature pad; coordinates come from the browser's geolocation API when the
+ * worker grants permission. Date, IP and the tamper-evidence hash are set
+ * server-side, never trusted from the client.
+ */
+export const contractSignSchema = z.object({
+  signatureImage: z
+    .string()
+    .regex(/^data:image\/png;base64,[A-Za-z0-9+/]+=*$/, 'Signature must be a PNG data URL')
+    .max(300_000, 'Signature image is too large'),
+  latitude: z.number().min(-90).max(90).optional(),
+  longitude: z.number().min(-180).max(180).optional(),
+  /** GPS accuracy radius in metres, as reported by the browser. */
+  accuracy: z.number().min(0).max(100_000).optional(),
+});
+export type ContractSignInput = z.infer<typeof contractSignSchema>;
+
 export const DEFAULT_CONTRACT_TITLE = 'Contract of Employment';
 
 /**

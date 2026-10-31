@@ -2,8 +2,10 @@ import { Body, Controller, Delete, Get, Param, Patch, Post, Put, Res } from '@ne
 import { ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import {
+  contractSignSchema,
   contractTemplateUpdateSchema,
   contractUpdateSchema,
+  type ContractSignInput,
   type ContractTemplateUpdateInput,
   type ContractUpdateInput,
 } from '@peopleflow/types';
@@ -39,6 +41,13 @@ export class ContractsController {
   @Post('employee/:employeeId')
   create(@Param('employeeId') employeeId: string) {
     return this.contracts.createForEmployee(employeeId);
+  }
+
+  // Self-only: the service rejects anyone but the employee named on the contract.
+  @RequirePermission('document.read.self')
+  @Post(':id/sign')
+  sign(@Param('id') id: string, @Body(new ZodPipe(contractSignSchema)) body: ContractSignInput) {
+    return this.contracts.sign(id, body);
   }
 
   @RequirePermission('document.manage')

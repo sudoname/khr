@@ -41,6 +41,8 @@ const EMPTY_CREATE = {
   departmentId: '',
   locationId: '',
   managerId: '',
+  livesOnsite: false,
+  createLogin: false,
 };
 
 export default function PeoplePage() {
@@ -96,9 +98,26 @@ export default function PeoplePage() {
     setCreateError('');
     setBusy(true);
     try {
-      const body: Record<string, string> = {};
-      for (const [k, v] of Object.entries(createForm)) if (v) body[k] = v;
-      await api.post('/employees', body);
+      const body: Record<string, unknown> = {};
+      // `createLogin` drives the follow-up invite call, not the employee record.
+      for (const [k, v] of Object.entries(createForm)) if (v && k !== 'createLogin') body[k] = v;
+      const created = await api.post<{ id: string }>('/employees', body);
+      if (createForm.createLogin) {
+        try {
+          await api.post('/members/invite', {
+            email: createForm.workEmail,
+            firstName: createForm.firstName,
+            lastName: createForm.lastName,
+            role: 'EMPLOYEE',
+            employeeId: created.id,
+          });
+        } catch (err) {
+          // Employee exists either way — surface the invite failure without rolling back.
+          setError(
+            `Employee created, but the login invite failed: ${err instanceof Error ? err.message : 'unknown error'}`,
+          );
+        }
+      }
       setShowCreate(false);
       setCreateForm({ ...EMPTY_CREATE });
       await load();
@@ -284,12 +303,23 @@ export default function PeoplePage() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field label="Employment type">
-                <Select value={createForm.employmentType} onChange={setCF('employmentType')}>
+                <Select
+                  value={createForm.employmentType}
+                  onChange={(e) =>
+                    setCreateForm((f) => ({
+                      ...f,
+                      employmentType: e.target.value,
+                      // Migrant farm workers are housed on-site by default.
+                      ...(e.target.value === 'MIGRANT' ? { livesOnsite: true } : {}),
+                    }))
+                  }
+                >
                   <option value="FULL_TIME">Full-time</option>
                   <option value="PART_TIME">Part-time</option>
                   <option value="CONTRACT">Contract</option>
                   <option value="INTERN">Intern</option>
                   <option value="TEMPORARY">Temporary</option>
+                  <option value="MIGRANT">Migrant worker</option>
                 </Select>
               </Field>
               <Field label="Department">
@@ -313,6 +343,30 @@ export default function PeoplePage() {
                 ))}
               </Select>
             </Field>
+            {createForm.employmentType === 'MIGRANT' && (
+              <p className="text-xs text-slate-500">
+                Migrant workers are typically paid annually — set their compensation to the Annual pay frequency
+                after creation.
+              </p>
+            )}
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input
+                type="checkbox"
+                checked={createForm.livesOnsite}
+                onChange={(e) => setCreateForm((f) => ({ ...f, livesOnsite: e.target.checked }))}
+              />
+              Lives on-site (e.g. on the farm)
+            </label>
+            {can('members.manage') && (
+              <label className="flex items-center gap-2 text-sm text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={createForm.createLogin}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, createLogin: e.target.checked }))}
+                />
+                Create Palmatech login (sends an invite email to the work email)
+              </label>
+            )}
             <div className="flex justify-end gap-2 pt-2">
               <Button type="button" variant="secondary" onClick={() => setShowCreate(false)}>
                 Cancel
