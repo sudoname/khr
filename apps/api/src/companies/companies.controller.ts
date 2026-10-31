@@ -79,6 +79,12 @@ export class CompaniesController {
   }
 
   @RequirePermission('members.manage')
+  @Post('members/:id/resend-invite')
+  resendInvite(@Param('id') id: string) {
+    return this.companies.resendInvite(id);
+  }
+
+  @RequirePermission('members.manage')
   @Patch('members/:id/role')
   updateRole(@Param('id') id: string, @Body(new ZodPipe(updateMemberRoleSchema)) body: { role: CompanyRole }) {
     return this.companies.updateRole(id, body.role);

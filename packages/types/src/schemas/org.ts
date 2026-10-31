@@ -8,11 +8,12 @@ export const departmentCreateSchema = z.object({
 });
 export const departmentUpdateSchema = departmentCreateSchema.partial();
 
-/** Job catalog entry: a title with its defined responsibilities. */
+/** Job catalog entry: a title with a description and defined responsibilities. */
 export const jobCreateSchema = z.object({
   title: z.string().trim().min(1).max(120),
+  description: z.string().trim().max(2000).optional().or(z.literal('')),
   responsibilities: z
-    .array(z.string().trim().min(1, 'Responsibility cannot be empty').max(500))
+    .array(z.string().trim().min(1, 'Responsibility cannot be empty').max(1000))
     .min(1, 'Define at least one responsibility')
     .max(30),
 });

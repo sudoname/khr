@@ -36,7 +36,7 @@ interface EmployeeDetail {
   probationEndsOn?: string | null;
   terminationDate?: string | null;
   grade?: string | null;
-  job?: { id: string; title: string; responsibilities: string[] } | null;
+  job?: { id: string; title: string; description: string | null; responsibilities: string[] } | null;
   annualRentDeclared?: string | null;
   // Restricted fields: the API nulls these unless the viewer is the employee
   // themself or holds compensation.read.
@@ -375,6 +375,7 @@ export default function EmployeeProfilePage() {
           {isFull && emp.job && emp.job.responsibilities.length > 0 && (
             <div className="mt-3 border-t border-slate-100 pt-3">
               <div className="mb-1 text-xs font-medium text-slate-500">Responsibilities · {emp.job.title}</div>
+              {emp.job.description && <p className="mb-2 text-sm text-slate-600">{emp.job.description}</p>}
               <ol className="list-inside list-decimal space-y-1 text-sm">
                 {emp.job.responsibilities.map((r, i) => (
                   <li key={i}>{r}</li>

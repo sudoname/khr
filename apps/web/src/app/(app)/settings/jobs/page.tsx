@@ -7,11 +7,12 @@ import { Alert, Badge, Button, Card, Empty, Field, Input, Modal, Spinner } from 
 interface Job {
   id: string;
   title: string;
+  description: string | null;
   responsibilities: string[];
   employeeCount: number;
 }
 
-const EMPTY_FORM = { title: '', responsibilities: '' };
+const EMPTY_FORM = { title: '', description: '', responsibilities: '' };
 
 export default function JobsSettingsPage() {
   const [jobs, setJobs] = useState<Job[] | null>(null);
@@ -41,7 +42,11 @@ export default function JobsSettingsPage() {
     setForm(
       target === 'new'
         ? { ...EMPTY_FORM }
-        : { title: target.title, responsibilities: target.responsibilities.join('\n') },
+        : {
+            title: target.title,
+            description: target.description ?? '',
+            responsibilities: target.responsibilities.join('\n'),
+          },
     );
     setEditing(target);
   }
@@ -55,7 +60,7 @@ export default function JobsSettingsPage() {
         .split('\n')
         .map((r) => r.trim())
         .filter(Boolean);
-      const body = { title: form.title, responsibilities };
+      const body = { title: form.title, description: form.description.trim(), responsibilities };
       if (editing === 'new') {
         await api.post('/jobs', body);
         setNotice('Job added to the catalog.');
@@ -92,9 +97,10 @@ export default function JobsSettingsPage() {
         <Button onClick={() => openModal('new')}>Add job</Button>
       </div>
       <p className="text-sm text-slate-500">
-        Each job has a title and defined responsibilities. Assign a job when creating or editing an employee;
-        the responsibilities show on their profile and are available to contracts via the{' '}
-        <code className="rounded bg-slate-100 px-1">{'{{responsibilities}}'}</code> placeholder.
+        Each job has a title, a description and defined responsibilities. Assign a job when creating or editing
+        an employee; they show on their profile and are available to contracts via the{' '}
+        <code className="rounded bg-slate-100 px-1">{'{{responsibilities}}'}</code> placeholder — the description
+        paragraph followed by the numbered responsibilities.
       </p>
       {error && <Alert kind="error">{error}</Alert>}
       {notice && <Alert kind="success">{notice}</Alert>}
@@ -125,6 +131,7 @@ export default function JobsSettingsPage() {
                 </div>
               }
             >
+              {job.description && <p className="mb-3 text-sm text-slate-600">{job.description}</p>}
               <div className="mb-1 text-xs font-medium text-slate-500">Responsibilities</div>
               <ol className="list-inside list-decimal space-y-1 text-sm">
                 {job.responsibilities.map((r, i) => (
@@ -147,6 +154,16 @@ export default function JobsSettingsPage() {
                 required
                 autoFocus
                 placeholder="Farm Hand"
+              />
+            </Field>
+            <Field label="Description (optional opening paragraph)">
+              <textarea
+                value={form.description}
+                onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))}
+                rows={3}
+                maxLength={2000}
+                placeholder="You shall manage and coordinate farm operations across all Company-owned or managed farms. You shall report directly to the Owner/Director and perform the following duties:"
+                className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm focus:border-brand-500 focus:outline-none"
               />
             </Field>
             <Field label="Responsibilities (one per line)">

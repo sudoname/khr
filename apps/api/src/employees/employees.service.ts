@@ -38,7 +38,7 @@ const DIRECTORY_SELECT = {
 const FULL_INCLUDE = {
   department: { select: { id: true, name: true } },
   location: { select: { id: true, name: true } },
-  job: { select: { id: true, title: true, responsibilities: true } },
+  job: { select: { id: true, title: true, description: true, responsibilities: true } },
   manager: { select: { id: true, firstName: true, lastName: true, jobTitle: true, employeeNo: true } },
   emergencyContacts: { select: { id: true, name: true, relationship: true, phone: true, email: true } },
 } as const;

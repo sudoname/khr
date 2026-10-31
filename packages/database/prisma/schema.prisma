@@ -219,6 +219,7 @@ model Job {
   id               String    @id @default(cuid())
   companyId        String
   title            String
+  description      String?
   responsibilities Json // string[]
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt

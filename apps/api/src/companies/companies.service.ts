@@ -217,6 +217,69 @@ export class CompaniesService {
     return { message: 'Invitation sent' };
   }
 
+  /**
+   * Re-sends the activation email for a member who has not yet verified their
+   * account. Previous invite tokens are invalidated so only the newest link
+   * works.
+   */
+  async resendInvite(membershipId: string) {
+    const companyId = this.ctx.companyId;
+    const membership = await this.prisma.tenant(companyId).membership.findFirst({
+      where: { id: membershipId, companyId },
+      include: { user: { select: { id: true, email: true, emailVerifiedAt: true } } },
+    });
+    if (!membership) throw new NotFoundException('Member not found');
+    this.assertCanManageRole(membership.role);
+    if (membership.user.emailVerifiedAt) {
+      throw new BadRequestException('This member has already activated their account');
+    }
+
+    // Invalidate any outstanding invite links before issuing a new one.
+    await this.prisma.securityToken.updateMany({
+      where: { userId: membership.user.id, type: 'INVITE', usedAt: null },
+      data: { usedAt: new Date() },
+    });
+
+    const token = randomBytes(32).toString('base64url');
+    await this.prisma.securityToken.create({
+      data: {
+        userId: membership.user.id,
+        type: 'INVITE',
+        tokenHash: sha256(token),
+        meta: { companyId },
+        expiresAt: new Date(Date.now() + 72 * 3600 * 1000),
+      },
+    });
+
+    const company = await this.prisma.company.findUniqueOrThrow({
+      where: { id: companyId },
+      select: { name: true },
+    });
+    const inviteUrl = `${config.webBaseUrl}/accept-invite?token=${token}`;
+    await this.queue.sendEmail({
+      to: membership.user.email,
+      subject: 'You have been invited to PeopleFlow HR',
+      text: `You have been invited to join "${company.name}" on PeopleFlow HR as ${membership.role}.\n\nActivate your account: ${inviteUrl}\n\nThe link expires in 72 hours.`,
+      html: renderEmail({
+        heading: `Join ${company.name}`,
+        bodyLines: [
+          `You have been invited to join "${company.name}" on PeopleFlow HR as ${membership.role}.`,
+          'Set your password to activate your account.',
+        ],
+        button: { label: 'Activate account', url: inviteUrl },
+        footerNote: 'The link expires in 72 hours.',
+      }),
+      companyId,
+    });
+
+    await this.audit.log('member.invite_resent', {
+      entity: 'Membership',
+      entityId: membership.id,
+      meta: { userId: membership.user.id, email: membership.user.email },
+    });
+    return { message: 'Invitation re-sent' };
+  }
+
   async updateRole(membershipId: string, role: CompanyRole) {
     const companyId = this.ctx.companyId;
     const db = this.prisma.tenant(companyId);

@@ -30,6 +30,7 @@ export default function MembersSettingsPage() {
   const [invite, setInvite] = useState({ email: '', firstName: '', lastName: '', role: 'EMPLOYEE' });
   const [modalError, setModalError] = useState('');
   const [busy, setBusy] = useState(false);
+  const [resendingId, setResendingId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -70,6 +71,20 @@ export default function MembersSettingsPage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Role change failed');
       await load();
+    }
+  }
+
+  async function resendInvite(member: Member) {
+    setError('');
+    setNotice('');
+    setResendingId(member.id);
+    try {
+      await api.post(`/members/${member.id}/resend-invite`, {});
+      setNotice(`Invitation re-sent to ${member.user.email}. The new link expires in 72 hours.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Resend failed');
+    } finally {
+      setResendingId(null);
     }
   }
 
@@ -139,9 +154,20 @@ export default function MembersSettingsPage() {
                   </td>
                   <td className="px-3 py-2 text-right">
                     {!isSelf && (
-                      <Button variant="ghost" onClick={() => void removeMember(m)}>
-                        Remove
-                      </Button>
+                      <div className="flex items-center justify-end gap-1">
+                        {!m.user.emailVerifiedAt && (
+                          <Button
+                            variant="ghost"
+                            disabled={resendingId === m.id}
+                            onClick={() => void resendInvite(m)}
+                          >
+                            {resendingId === m.id ? 'Sending…' : 'Resend invite'}
+                          </Button>
+                        )}
+                        <Button variant="ghost" onClick={() => void removeMember(m)}>
+                          Remove
+                        </Button>
+                      </div>
                     )}
                   </td>
                 </tr>

@@ -30,6 +30,7 @@ export class JobsService {
     return jobs.map((j) => ({
       id: j.id,
       title: j.title,
+      description: j.description,
       responsibilities: j.responsibilities as string[],
       employeeCount: j._count.employees,
     }));
@@ -40,13 +41,19 @@ export class JobsService {
     // re-creating a previously deleted title revives that row instead.
     const existing = await this.db.job.findFirst({ where: { title: input.title } });
     if (existing && !existing.deletedAt) throw new ConflictException('A job with this title already exists');
+    const description = input.description || null;
     const job = existing
       ? await this.db.job.update({
           where: { id: existing.id },
-          data: { responsibilities: input.responsibilities, deletedAt: null },
+          data: { description, responsibilities: input.responsibilities, deletedAt: null },
         })
       : await this.db.job.create({
-          data: { companyId: this.ctx.companyId, title: input.title, responsibilities: input.responsibilities },
+          data: {
+            companyId: this.ctx.companyId,
+            title: input.title,
+            description,
+            responsibilities: input.responsibilities,
+          },
         });
     await this.audit.log('job.created', { entity: 'Job', entityId: job.id, meta: { title: job.title } });
     return job;
@@ -63,6 +70,7 @@ export class JobsService {
       where: { id },
       data: {
         ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.description !== undefined ? { description: input.description || null } : {}),
         ...(input.responsibilities !== undefined ? { responsibilities: input.responsibilities } : {}),
       },
     });
