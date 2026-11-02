@@ -17,6 +17,7 @@ import type { Response } from 'express';
 import {
   companyUpdateSchema,
   inviteMemberSchema,
+  linkMemberEmployeeSchema,
   planUpdateSchema,
   updateMemberRoleSchema,
   type BillingPlanValue,
@@ -82,6 +83,15 @@ export class CompaniesController {
   @Post('members/:id/resend-invite')
   resendInvite(@Param('id') id: string) {
     return this.companies.resendInvite(id);
+  }
+
+  @RequirePermission('members.manage')
+  @Patch('members/:id/employee')
+  linkEmployee(
+    @Param('id') id: string,
+    @Body(new ZodPipe(linkMemberEmployeeSchema)) body: { employeeId: string | null },
+  ) {
+    return this.companies.linkEmployee(id, body.employeeId);
   }
 
   @RequirePermission('members.manage')

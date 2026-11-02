@@ -280,6 +280,51 @@ export class CompaniesService {
     return { message: 'Invitation re-sent' };
   }
 
+  /**
+   * Links a member's login to an employee record (or unlinks with null) so
+   * self-service features — profile, contract signing, leave, attendance —
+   * know which employee the login belongs to. Keeps `membership.employeeId`
+   * and `employee.userId` in sync, mirroring the invite-time linking.
+   */
+  async linkEmployee(membershipId: string, employeeId: string | null) {
+    const companyId = this.ctx.companyId;
+    const db = this.prisma.tenant(companyId);
+    const membership = await db.membership.findFirst({ where: { id: membershipId, companyId } });
+    if (!membership) throw new NotFoundException('Member not found');
+    this.assertCanManageRole(membership.role);
+
+    if (employeeId) {
+      const employee = await db.employee.findFirst({ where: { id: employeeId, deletedAt: null } });
+      if (!employee) throw new BadRequestException('Employee not found in this company');
+      if (employee.userId && employee.userId !== membership.userId) {
+        throw new BadRequestException('Employee is already linked to another user');
+      }
+      const taken = await db.membership.findFirst({
+        where: { companyId, employeeId, NOT: { id: membership.id } },
+      });
+      if (taken) throw new BadRequestException('Employee is already linked to another member');
+    }
+
+    await this.prisma.$transaction(async (tx) => {
+      // Fail-closed RLS: multi-statement transaction needs the tenant GUC.
+      await tx.$executeRaw`SELECT set_config('app.company_id', ${companyId}, TRUE)`;
+      if (membership.employeeId && membership.employeeId !== employeeId) {
+        await tx.employee.updateMany({ where: { id: membership.employeeId, companyId }, data: { userId: null } });
+      }
+      await tx.membership.update({ where: { id: membership.id }, data: { employeeId } });
+      if (employeeId) {
+        await tx.employee.updateMany({ where: { id: employeeId, companyId }, data: { userId: membership.userId } });
+      }
+    });
+
+    await this.audit.log(employeeId ? 'member.employee_linked' : 'member.employee_unlinked', {
+      entity: 'Membership',
+      entityId: membership.id,
+      meta: { userId: membership.userId, employeeId: employeeId ?? membership.employeeId },
+    });
+    return { message: employeeId ? 'Employee linked' : 'Employee unlinked' };
+  }
+
   async updateRole(membershipId: string, role: CompanyRole) {
     const companyId = this.ctx.companyId;
     const db = this.prisma.tenant(companyId);

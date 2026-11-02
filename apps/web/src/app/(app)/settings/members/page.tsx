@@ -21,6 +21,14 @@ interface Member {
   employee: { id: string; employeeNo: string; jobTitle: string } | null;
 }
 
+interface EmployeeOption {
+  id: string;
+  employeeNo: string;
+  firstName: string;
+  lastName: string;
+  jobTitle: string;
+}
+
 export default function MembersSettingsPage() {
   const { me } = useSession();
   const [members, setMembers] = useState<Member[] | null>(null);
@@ -31,6 +39,11 @@ export default function MembersSettingsPage() {
   const [modalError, setModalError] = useState('');
   const [busy, setBusy] = useState(false);
   const [resendingId, setResendingId] = useState<string | null>(null);
+  const [linkTarget, setLinkTarget] = useState<Member | null>(null);
+  const [linkEmployeeId, setLinkEmployeeId] = useState('');
+  const [employees, setEmployees] = useState<EmployeeOption[] | null>(null);
+  const [linkError, setLinkError] = useState('');
+  const [linkBusy, setLinkBusy] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -85,6 +98,35 @@ export default function MembersSettingsPage() {
       setError(err instanceof Error ? err.message : 'Resend failed');
     } finally {
       setResendingId(null);
+    }
+  }
+
+  function openLink(member: Member) {
+    setLinkError('');
+    setLinkEmployeeId(member.employee?.id ?? '');
+    setLinkTarget(member);
+    if (employees === null) {
+      api
+        .get<{ items: EmployeeOption[] }>('/employees?pageSize=100')
+        .then((res) => setEmployees(res.items))
+        .catch(() => setEmployees([]));
+    }
+  }
+
+  async function saveLink(e: React.FormEvent) {
+    e.preventDefault();
+    if (!linkTarget) return;
+    setLinkError('');
+    setLinkBusy(true);
+    try {
+      await api.patch(`/members/${linkTarget.id}/employee`, { employeeId: linkEmployeeId || null });
+      setNotice(linkEmployeeId ? 'Employee record linked.' : 'Employee record unlinked.');
+      setLinkTarget(null);
+      await load();
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Linking failed');
+    } finally {
+      setLinkBusy(false);
     }
   }
 
@@ -153,22 +195,25 @@ export default function MembersSettingsPage() {
                     {m.user.mfaEnabled ? <Badge tone="green">Enabled</Badge> : <Badge tone="slate">Off</Badge>}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {!isSelf && (
-                      <div className="flex items-center justify-end gap-1">
-                        {!m.user.emailVerifiedAt && (
-                          <Button
-                            variant="ghost"
-                            disabled={resendingId === m.id}
-                            onClick={() => void resendInvite(m)}
-                          >
-                            {resendingId === m.id ? 'Sending…' : 'Resend invite'}
-                          </Button>
-                        )}
+                    <div className="flex items-center justify-end gap-1">
+                      <Button variant="ghost" onClick={() => openLink(m)}>
+                        {m.employee ? 'Change employee' : 'Link employee'}
+                      </Button>
+                      {!isSelf && !m.user.emailVerifiedAt && (
+                        <Button
+                          variant="ghost"
+                          disabled={resendingId === m.id}
+                          onClick={() => void resendInvite(m)}
+                        >
+                          {resendingId === m.id ? 'Sending…' : 'Resend invite'}
+                        </Button>
+                      )}
+                      {!isSelf && (
                         <Button variant="ghost" onClick={() => void removeMember(m)}>
                           Remove
                         </Button>
-                      </div>
-                    )}
+                      )}
+                    </div>
                   </td>
                 </tr>
               );
@@ -224,6 +269,50 @@ export default function MembersSettingsPage() {
               </Button>
               <Button type="submit" disabled={busy}>
                 {busy ? 'Sending…' : 'Send invitation'}
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {linkTarget && (
+        <Modal
+          title={`Link employee record — ${linkTarget.user.firstName} ${linkTarget.user.lastName}`}
+          onClose={() => setLinkTarget(null)}
+        >
+          <form onSubmit={saveLink} className="space-y-3">
+            {linkError && <Alert kind="error">{linkError}</Alert>}
+            <p className="text-sm text-slate-600">
+              Linking connects this login to an employee record so the member can see their own
+              profile, sign their contract and use leave &amp; attendance self-service.
+            </p>
+            {employees === null ? (
+              <Spinner />
+            ) : (
+              <Field label="Employee record">
+                <Select value={linkEmployeeId} onChange={(e) => setLinkEmployeeId(e.target.value)}>
+                  <option value="">No linked employee</option>
+                  {employees
+                    .filter((emp) => {
+                      // Hide employees already linked to a different member.
+                      const owner = members?.find((mm) => mm.employee?.id === emp.id);
+                      return !owner || owner.id === linkTarget.id;
+                    })
+                    .map((emp) => (
+                      <option key={emp.id} value={emp.id}>
+                        {emp.firstName} {emp.lastName} · {emp.employeeNo}
+                        {emp.jobTitle ? ` — ${emp.jobTitle}` : ''}
+                      </option>
+                    ))}
+                </Select>
+              </Field>
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <Button type="button" variant="secondary" onClick={() => setLinkTarget(null)}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={linkBusy || employees === null}>
+                {linkBusy ? 'Saving…' : 'Save link'}
               </Button>
             </div>
           </form>

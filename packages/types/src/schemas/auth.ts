@@ -68,6 +68,9 @@ export const acceptInviteSchema = z.object({
 
 export const updateMemberRoleSchema = z.object({ role: z.enum(COMPANY_ROLES) });
 
+/** Link (or unlink, with null) a member's login to an employee record. */
+export const linkMemberEmployeeSchema = z.object({ employeeId: z.string().min(1).nullable() });
+
 export const changePasswordSchema = z.object({
   currentPassword: z.string().min(1),
   newPassword: passwordSchema,
