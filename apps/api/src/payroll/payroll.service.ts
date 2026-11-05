@@ -8,7 +8,6 @@ import {
 import { stringify } from 'csv-stringify/sync';
 import { authenticator } from 'otplib';
 import { Prisma } from '@peopleflow/database';
-import { COMPANY_ROLES, roleHas } from '@peopleflow/types';
 import type { PayrollRunCreateInput, PayrollSettingsInput, PayslipAdjustInput } from '@peopleflow/types';
 import { csvSafe } from '../common/csv';
 import { config } from '../config';
@@ -418,16 +417,13 @@ export class PayrollService {
   }
 
   /**
-   * Segregation of duties (maker–checker): whoever prepared or submitted a
-   * run must not be the one to approve it. Enforced against user ids, not
-   * roles, so a COMPANY_ADMIN holding both payroll permissions still cannot
-   * finalize their own run.
-   *
-   * Break-glass (decision D2): when the approver is the ONLY member of the
-   * company holding `payroll.approve`, no second person could ever review the
-   * run and the hard rule would deadlock payroll. Self-approval is then
-   * allowed behind a fresh TOTP check, and the override is written to the
-   * audit trail. Returns true when the override path was used.
+   * Segregation of duties (maker–checker): approving a run you prepared or
+   * submitted yourself requires explicit step-up confirmation — a fresh TOTP
+   * code from the approver's enrolled authenticator — and the override is
+   * written to the audit trail. Approving someone else's run needs no code.
+   * Enforced against user ids, not roles, so a COMPANY_ADMIN holding both
+   * payroll permissions is still challenged on their own runs.
+   * Returns true when the self-approval path was used.
    */
   private async assertSeparationOfDuties(
     run: { id: string; createdById: string | null; submittedById: string | null },
@@ -438,30 +434,18 @@ export class PayrollService {
       return false;
     }
 
-    const approverRoles = COMPANY_ROLES.filter((role) => roleHas(role, 'payroll.approve'));
-    const otherApprovers = await this.db.membership.count({
-      where: { role: { in: approverRoles }, userId: { not: approverId } },
-    });
-    if (otherApprovers > 0) {
-      throw new ForbiddenException({
-        message:
-          'Segregation of duties: the user who prepared or submitted a payroll run cannot approve it. Another member with payroll approval permission must review it.',
-        code: 'PAYROLL_SOD_VIOLATION',
-      });
-    }
-
     const user = await this.prisma.user.findUnique({ where: { id: approverId } });
     if (!user?.mfaEnabled || !user.mfaSecret) {
       throw new ForbiddenException({
         message:
-          'You are the only member who can approve payroll, so self-approval needs two-factor authentication. Enroll MFA on your account, then retry with a current authenticator code.',
+          'You prepared or submitted this run yourself, so self-approval needs two-factor authentication. Enroll MFA on your account, then retry with a current authenticator code.',
         code: 'SOD_OVERRIDE_MFA_REQUIRED',
       });
     }
     if (!mfaCode) {
       throw new ForbiddenException({
         message:
-          'You are the only member who can approve payroll. Confirm self-approval with a current authenticator code.',
+          'You prepared or submitted this run yourself. Confirm self-approval with a current authenticator code.',
         code: 'SOD_OVERRIDE_MFA_REQUIRED',
       });
     }
@@ -475,7 +459,7 @@ export class PayrollService {
     await this.audit.log('payroll.sod_override', {
       entity: 'PayrollRun',
       entityId: run.id,
-      meta: { runId: run.id, reason: 'sole-approver' },
+      meta: { runId: run.id, reason: 'self-approval-mfa' },
     });
     return true;
   }

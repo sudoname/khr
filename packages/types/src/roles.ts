@@ -127,6 +127,7 @@ export const ROLE_PERMISSIONS: Record<CompanyRole, Permission[]> = {
     'employee.read.team',
     'compensation.read',
     'compensation.write',
+    'payroll.manage',
     'leave.request.any',
     'leave.approve',
     'leave.policy.manage',

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
-import { api } from '@/lib/api';
+import { ApiError, api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Alert, Badge, Button, Card, Empty, Field, Input, Modal, Spinner, Table } from '@/components/ui';
 import { MONTHS, formatNgn, runStatusTone } from '../format';
@@ -64,6 +64,11 @@ export default function PayrollRunPage() {
   const [busy, setBusy] = useState(false);
   const [rejecting, setRejecting] = useState(false);
   const [rejectNote, setRejectNote] = useState('');
+
+  // self-approval step-up: the API demands a current authenticator code
+  const [mfaPrompt, setMfaPrompt] = useState(false);
+  const [mfaCode, setMfaCode] = useState('');
+  const [mfaError, setMfaError] = useState('');
 
   // one-off bonus / deduction adjustments (DRAFT runs only)
   const [adjusting, setAdjusting] = useState<Payslip | null>(null);
@@ -127,6 +132,36 @@ export default function PayrollRunPage() {
     }
   }
 
+  async function approve(code?: string) {
+    setError('');
+    setNotice('');
+    setBusy(true);
+    try {
+      await api.post(`/payroll/runs/${params.id}/approve`, code ? { mfaCode: code } : {});
+      setMfaPrompt(false);
+      setMfaCode('');
+      setMfaError('');
+      await load();
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'SOD_OVERRIDE_MFA_REQUIRED') {
+        if (err.message.includes('Enroll MFA')) {
+          setError(err.message);
+        } else {
+          setMfaError('');
+          setMfaPrompt(true);
+        }
+      } else if (err instanceof ApiError && err.code === 'SOD_OVERRIDE_MFA_INVALID') {
+        setMfaError('Invalid authenticator code. Check your app and try again.');
+        setMfaPrompt(true);
+      } else {
+        setMfaPrompt(false);
+        setError(err instanceof Error ? err.message : 'Action failed');
+      }
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loadError) return <Alert kind="error">{loadError}</Alert>;
   if (!run) return <Spinner />;
 
@@ -171,7 +206,7 @@ export default function PayrollRunPage() {
               <Button variant="secondary" disabled={busy} onClick={() => setRejecting(true)}>
                 Reject
               </Button>
-              <Button disabled={busy} onClick={() => void action('approve')}>
+              <Button disabled={busy} onClick={() => void approve()}>
                 Approve
               </Button>
             </>
@@ -301,6 +336,62 @@ export default function PayrollRunPage() {
               </Button>
               <Button type="submit" variant="danger">
                 Reject run
+              </Button>
+            </div>
+          </form>
+        </Modal>
+      )}
+
+      {mfaPrompt && (
+        <Modal
+          title="Confirm self-approval"
+          onClose={() => {
+            setMfaPrompt(false);
+            setMfaCode('');
+            setMfaError('');
+          }}
+        >
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void approve(mfaCode);
+            }}
+            className="space-y-3"
+          >
+            <p className="text-sm text-slate-600">
+              You prepared or submitted this run yourself. For separation of duties, enter the
+              current 6-digit code from your authenticator app to confirm the approval.
+            </p>
+            {mfaError && <Alert kind="error">{mfaError}</Alert>}
+            <Field label="Authenticator code">
+              <Input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                autoFocus
+                placeholder="123456"
+                minLength={6}
+                maxLength={6}
+                pattern="[0-9]{6}"
+                value={mfaCode}
+                onChange={(e) => setMfaCode(e.target.value.replace(/\D/g, ''))}
+                required
+              />
+            </Field>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={() => {
+                  setMfaPrompt(false);
+                  setMfaCode('');
+                  setMfaError('');
+                }}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={busy || mfaCode.length !== 6}>
+                {busy ? 'Confirming…' : 'Confirm & approve'}
               </Button>
             </div>
           </form>
