@@ -18,7 +18,12 @@ interface Member {
     emailVerifiedAt: string | null;
     mfaEnabled: boolean;
   };
-  employee: { id: string; employeeNo: string; jobTitle: string } | null;
+  employee: {
+    id: string;
+    employeeNo: string;
+    jobTitle: string;
+    contractStatus: 'SIGNED' | 'UNSIGNED' | 'NONE';
+  } | null;
 }
 
 interface EmployeeOption {
@@ -157,7 +162,7 @@ export default function MembersSettingsPage() {
         ) : members.length === 0 ? (
           <Empty>No members yet.</Empty>
         ) : (
-          <Table headers={['Member', 'Role', 'Status', 'MFA', '']}>
+          <Table headers={['Member', 'Role', 'Status', 'MFA', 'Contract', '']}>
             {members.map((m) => {
               const isSelf = m.user.id === me?.user.id;
               return (
@@ -193,6 +198,17 @@ export default function MembersSettingsPage() {
                   </td>
                   <td className="px-3 py-2">
                     {m.user.mfaEnabled ? <Badge tone="green">Enabled</Badge> : <Badge tone="slate">Off</Badge>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {!m.employee ? (
+                      <Badge tone="slate">No employee</Badge>
+                    ) : m.employee.contractStatus === 'SIGNED' ? (
+                      <Badge tone="green">Signed</Badge>
+                    ) : m.employee.contractStatus === 'UNSIGNED' ? (
+                      <Badge tone="amber">Not signed</Badge>
+                    ) : (
+                      <Badge tone="slate">No contract</Badge>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <div className="flex items-center justify-end gap-1">

@@ -92,7 +92,14 @@ export class CompaniesService {
       where: { companyId: this.ctx.companyId },
       include: {
         user: { select: { id: true, email: true, firstName: true, lastName: true, emailVerifiedAt: true, mfaEnabled: true } },
-        employee: { select: { id: true, employeeNo: true, jobTitle: true } },
+        employee: {
+          select: {
+            id: true,
+            employeeNo: true,
+            jobTitle: true,
+            contract: { select: { signedAt: true } },
+          },
+        },
       },
       orderBy: { createdAt: 'asc' },
     });
@@ -100,7 +107,19 @@ export class CompaniesService {
       id: m.id,
       role: m.role,
       user: m.user,
-      employee: m.employee,
+      employee: m.employee
+        ? {
+            id: m.employee.id,
+            employeeNo: m.employee.employeeNo,
+            jobTitle: m.employee.jobTitle,
+            // 'SIGNED' | 'UNSIGNED' | 'NONE' — whether their employment contract was signed on-screen
+            contractStatus: m.employee.contract
+              ? m.employee.contract.signedAt
+                ? 'SIGNED'
+                : 'UNSIGNED'
+              : 'NONE',
+          }
+        : null,
       createdAt: m.createdAt,
     }));
   }
