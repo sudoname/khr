@@ -175,6 +175,9 @@ importers:
       '@peopleflow/database':
         specifier: workspace:*
         version: link:../../packages/database
+      '@peopleflow/types':
+        specifier: workspace:*
+        version: link:../../packages/types
       bullmq:
         specifier: ^5.8.3
         version: 5.81.5

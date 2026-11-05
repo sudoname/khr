@@ -8,6 +8,8 @@ export interface EmailJob {
   subject: string;
   text: string;
   html?: string;
+  /** Small text attachments (e.g. CSV exports); content travels through Redis. */
+  attachments?: { filename: string; content: string; contentType?: string }[];
   /** For audit/trace only; never used to widen access. */
   companyId?: string;
 }

@@ -10,6 +10,8 @@ export interface EmailJob {
   subject: string;
   text: string;
   html?: string;
+  /** Small text attachments (e.g. CSV exports); content travels through Redis. */
+  attachments?: { filename: string; content: string; contentType?: string }[];
   companyId?: string;
 }
 
@@ -24,8 +26,8 @@ export function startEmailWorker(): Worker<EmailJob> {
   const worker = new Worker<EmailJob>(
     'email',
     async (job) => {
-      const { to, subject, text, html } = job.data;
-      await transport.sendMail({ from: config.smtp.from, to, subject, text, html });
+      const { to, subject, text, html, attachments } = job.data;
+      await transport.sendMail({ from: config.smtp.from, to, subject, text, html, attachments });
       logger.info({ to, subject, jobId: job.id }, 'email sent');
     },
     {

@@ -1,4 +1,5 @@
 import { PrismaClient } from '@peopleflow/database';
+import { startBankPayments } from './bank-payments';
 import { startEmailWorker } from './email.worker';
 import { startMaintenance } from './maintenance';
 import { logger } from './logger';
@@ -9,11 +10,17 @@ async function main() {
 
   const emailWorker = startEmailWorker();
   const maintenanceWorker = await startMaintenance(prisma);
-  logger.info('worker started: email + maintenance queues');
+  const bankPaymentsWorker = await startBankPayments(prisma);
+  logger.info('worker started: email + maintenance + reports queues');
 
   const shutdown = async (signal: string) => {
     logger.info({ signal }, 'shutting down worker');
-    await Promise.allSettled([emailWorker.close(), maintenanceWorker.close(), prisma.$disconnect()]);
+    await Promise.allSettled([
+      emailWorker.close(),
+      maintenanceWorker.close(),
+      bankPaymentsWorker.close(),
+      prisma.$disconnect(),
+    ]);
     process.exit(0);
   };
   process.on('SIGINT', () => void shutdown('SIGINT'));
