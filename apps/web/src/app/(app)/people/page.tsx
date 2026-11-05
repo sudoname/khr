@@ -161,6 +161,11 @@ export default function PeoplePage() {
               <Button variant="secondary">Export CSV</Button>
             </a>
           )}
+          {can('compensation.read') && (
+            <a href="/api/employees/export/bank-payments" download>
+              <Button variant="secondary">Bank payment file</Button>
+            </a>
+          )}
           {can('employee.import') && (
             <>
               <input

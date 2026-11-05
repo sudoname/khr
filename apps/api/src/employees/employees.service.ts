@@ -18,6 +18,7 @@ import { AppContext } from '../context/app-context';
 import { AuditService } from '../infra/audit.service';
 import { PrismaService } from '../infra/prisma.service';
 import { createsReportingCycle } from '../org/org-cycle';
+import { toMonthlyGross } from '../payroll/nigeria-tax';
 
 /** Fields anyone with `employee.read` may see (the directory view). */
 const DIRECTORY_SELECT = {
@@ -798,5 +799,64 @@ export class EmployeesService {
       })),
       { header: true },
     );
+  }
+
+  /**
+   * Bank bulk-payment schedule (GTBank upload template) built from each
+   * active employee's current base salary, converted to a monthly figure.
+   * Contains salary data, so it sits behind `compensation.read` instead of
+   * `employee.export`. Sort codes aren't stored, so that column stays blank
+   * for the uploader to fill in.
+   */
+  async bankPaymentsCsv(paymentDate?: string): Promise<{ csv: string; filename: string }> {
+    const date = paymentDate ? new Date(`${paymentDate}T00:00:00Z`) : new Date();
+    if (Number.isNaN(date.getTime())) throw new BadRequestException('Invalid payment date');
+    const MONTHS = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    const month = MONTHS[date.getUTCMonth()];
+    const year = date.getUTCFullYear();
+    // dd/MMM/yyyy — 11 characters, per the bank's template limit.
+    const formattedDate = `${String(date.getUTCDate()).padStart(2, '0')}/${month}/${year}`;
+
+    const employees = await this.db.employee.findMany({
+      where: { deletedAt: null, status: 'ACTIVE' },
+      select: {
+        employeeNo: true,
+        firstName: true,
+        lastName: true,
+        bankAccountNumber: true,
+        compensations: {
+          orderBy: { effectiveDate: 'desc' },
+          take: 1,
+          select: { baseSalary: true, payFrequency: true },
+        },
+      },
+      orderBy: { employeeNo: 'asc' },
+    });
+
+    const rows = employees
+      .filter((e) => e.compensations.length > 0)
+      .map((e) => {
+        const comp = e.compensations[0];
+        const name = `${e.firstName} ${e.lastName}`.toUpperCase().slice(0, 50);
+        return {
+          PaymentAmount: toMonthlyGross(comp.baseSalary, comp.payFrequency).toFixed(2),
+          PaymentDate: formattedDate,
+          Reference: '',
+          Remark: `SALARY FOR ${month} ${year}`.slice(0, 25),
+          VendorCode: csvSafe(e.employeeNo),
+          VendorName: csvSafe(name),
+          VendorAcctNumber: (e.bankAccountNumber ?? '').replace(/\D/g, '').slice(0, 15),
+          VendorBankSortCode: '',
+        };
+      });
+
+    await this.audit.log('employee.bank_payments_exported', {
+      entity: 'Employee',
+      meta: { count: rows.length, paymentDate: formattedDate },
+    });
+    return {
+      csv: stringify(rows, { header: true }),
+      filename: `bank-payments-${year}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}.csv`,
+    };
   }
 }

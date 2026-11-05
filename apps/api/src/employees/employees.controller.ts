@@ -94,6 +94,18 @@ export class EmployeesController {
     return csv;
   }
 
+  @RequirePermission('compensation.read')
+  @Get('export/bank-payments')
+  async exportBankPayments(
+    @Query('date') date: string | undefined,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const { csv, filename } = await this.employees.bankPaymentsCsv(date || undefined);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return csv;
+  }
+
   @RequirePermission('employee.import')
   @Post('import')
   @ApiConsumes('multipart/form-data')
