@@ -48,6 +48,7 @@ export default function AttendancePage() {
   const isEmployee = !!me?.employee;
   const canReview = can('attendance.correct.review');
   const canPolicy = can('attendance.policy.manage');
+  const canReadAll = can('attendance.read.all');
 
   const [today, setToday] = useState<TodayState | null>(null);
   const [records, setRecords] = useState<{ items: AttendanceRecord[]; total: number } | null>(null);
@@ -74,11 +75,13 @@ export default function AttendancePage() {
     try {
       if (isEmployee) {
         api.get<TodayState>('/attendance/today').then(setToday).catch(() => setToday({ day: null, record: null }));
+        api.get<Correction[]>('/attendance/corrections/me').then(setMyCorrections).catch(() => setMyCorrections([]));
+      }
+      if (isEmployee || canReadAll) {
         api
           .get<{ items: AttendanceRecord[]; total: number }>('/attendance/records?pageSize=20')
           .then(setRecords)
           .catch(() => setRecords({ items: [], total: 0 }));
-        api.get<Correction[]>('/attendance/corrections/me').then(setMyCorrections).catch(() => setMyCorrections([]));
       }
       if (canReview) {
         api.get<Correction[]>('/attendance/corrections/pending').then(setPendingCorrections).catch(() => setPendingCorrections([]));
@@ -95,7 +98,7 @@ export default function AttendancePage() {
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load attendance');
     }
-  }, [isEmployee, canReview]);
+  }, [isEmployee, canReview, canReadAll]);
 
   useEffect(() => {
     void load();
@@ -323,16 +326,28 @@ export default function AttendancePage() {
         </Card>
       )}
 
-      {isEmployee && (
+      {(isEmployee || canReadAll) && (
         <Card title="Recent records">
           {records === null ? (
             <Spinner />
           ) : records.items.length === 0 ? (
             <Empty>No attendance records yet.</Empty>
           ) : (
-            <Table headers={['Day', 'Clock in', 'Clock out', 'Status', 'Source']}>
+            <Table
+              headers={
+                canReadAll
+                  ? ['Employee', 'Day', 'Clock in', 'Clock out', 'Status', 'Source']
+                  : ['Day', 'Clock in', 'Clock out', 'Status', 'Source']
+              }
+            >
               {records.items.map((r) => (
                 <tr key={r.id}>
+                  {canReadAll && (
+                    <td className="px-3 py-2 font-medium">
+                      {r.employee ? `${r.employee.firstName} ${r.employee.lastName}` : '—'}
+                      {r.employee && <span className="ml-1 text-xs font-normal text-slate-400">{r.employee.employeeNo}</span>}
+                    </td>
+                  )}
                   <td className="px-3 py-2">{d(r.day)}</td>
                   <td className="px-3 py-2">{t(r.clockInAt)}</td>
                   <td className="px-3 py-2">{t(r.clockOutAt)}</td>
