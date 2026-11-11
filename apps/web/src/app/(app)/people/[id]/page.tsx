@@ -77,7 +77,7 @@ interface ContractSummary {
 
 const d = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString() : '—');
 
-// Only full-profile viewers (HR, self, managers) receive onboardingStatus.
+// Rendered only for HR/admin viewers (employee.write).
 function onboardingBadge(emp: EmployeeDetail) {
   switch (emp.onboardingStatus) {
     case 'SUBMITTED':
@@ -330,7 +330,8 @@ export default function EmployeeProfilePage() {
           </Link>
           <h1 className="text-xl font-semibold">
             {emp.firstName} {emp.lastName}{' '}
-            <Badge tone={statusTone(emp.status)}>{emp.status}</Badge> {onboardingBadge(emp)}
+            <Badge tone={statusTone(emp.status)}>{emp.status}</Badge>{' '}
+            {can('employee.write') && onboardingBadge(emp)}
           </h1>
           <p className="text-sm text-slate-500">
             {emp.jobTitle} · {emp.employeeNo} · {emp.workEmail}
