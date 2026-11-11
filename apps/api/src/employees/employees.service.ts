@@ -112,10 +112,15 @@ export class EmployeesService {
           }
         : {}),
     };
+    // Onboarding progress is HR workflow state, not directory data: only
+    // reviewers (employee.write) get it in the list payload.
+    const canReview = this.ctx.can('employee.write');
     const [items, total] = await Promise.all([
       this.db.employee.findMany({
         where,
-        select: DIRECTORY_SELECT,
+        select: canReview
+          ? { ...DIRECTORY_SELECT, onboardingStatus: true, termsAcceptedAt: true }
+          : DIRECTORY_SELECT,
         orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
         skip: (query.page - 1) * query.pageSize,
         take: query.pageSize,

@@ -136,7 +136,7 @@ export default function ProfilePage() {
   if (loadError) return <Alert kind="error">{loadError}</Alert>;
   if (!profile) return <Spinner />;
 
-  const displayName = profile.preferredName || `${profile.firstName} ${profile.lastName}`;
+  const displayName = `${profile.firstName} ${profile.lastName}`;
   const initials = `${profile.firstName[0] ?? ''}${profile.lastName[0] ?? ''}`.toUpperCase();
 
   return (

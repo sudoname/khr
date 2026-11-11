@@ -36,6 +36,8 @@ interface EmployeeDetail {
   probationEndsOn?: string | null;
   terminationDate?: string | null;
   grade?: string | null;
+  onboardingStatus?: 'NOT_SUBMITTED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+  termsAcceptedAt?: string | null;
   job?: { id: string; title: string; description: string | null; responsibilities: string[] } | null;
   annualRentDeclared?: string | null;
   // Restricted fields: the API nulls these unless the viewer is the employee
@@ -74,6 +76,26 @@ interface ContractSummary {
 }
 
 const d = (iso: string | null | undefined) => (iso ? new Date(iso).toLocaleDateString() : '—');
+
+// Only full-profile viewers (HR, self, managers) receive onboardingStatus.
+function onboardingBadge(emp: EmployeeDetail) {
+  switch (emp.onboardingStatus) {
+    case 'SUBMITTED':
+      return <Badge tone="amber">Onboarding: awaiting review</Badge>;
+    case 'APPROVED':
+      return emp.termsAcceptedAt ? (
+        <Badge tone="green">Onboarding complete</Badge>
+      ) : (
+        <Badge tone="blue">Onboarding: terms pending</Badge>
+      );
+    case 'REJECTED':
+      return <Badge tone="red">Onboarding returned</Badge>;
+    case 'NOT_SUBMITTED':
+      return <Badge tone="slate">Onboarding not submitted</Badge>;
+    default:
+      return null;
+  }
+}
 
 export default function EmployeeProfilePage() {
   const { id } = useParams<{ id: string }>();
@@ -307,8 +329,8 @@ export default function EmployeeProfilePage() {
             ← Back to directory
           </Link>
           <h1 className="text-xl font-semibold">
-            {emp.preferredName || emp.firstName} {emp.lastName}{' '}
-            <Badge tone={statusTone(emp.status)}>{emp.status}</Badge>
+            {emp.firstName} {emp.lastName}{' '}
+            <Badge tone={statusTone(emp.status)}>{emp.status}</Badge> {onboardingBadge(emp)}
           </h1>
           <p className="text-sm text-slate-500">
             {emp.jobTitle} · {emp.employeeNo} · {emp.workEmail}

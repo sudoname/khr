@@ -37,7 +37,6 @@ export class OrgService {
         employeeNo: true,
         firstName: true,
         lastName: true,
-        preferredName: true,
         jobTitle: true,
         photoUrl: true,
         managerId: true,
@@ -52,7 +51,7 @@ export class OrgService {
       nodes.set(e.id, {
         id: e.id,
         employeeNo: e.employeeNo,
-        name: `${e.preferredName || e.firstName} ${e.lastName}`,
+        name: `${e.firstName} ${e.lastName}`,
         jobTitle: e.jobTitle,
         photoUrl: e.photoUrl,
         department: e.department?.name ?? null,

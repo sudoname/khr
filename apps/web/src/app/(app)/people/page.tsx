@@ -17,6 +17,22 @@ interface DirectoryEmployee {
   status: string;
   department: { id: string; name: string } | null;
   location: { id: string; name: string } | null;
+  // Present only when the viewer has employee.write.
+  onboardingStatus?: 'NOT_SUBMITTED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+  termsAcceptedAt?: string | null;
+}
+
+function onboardingBadge(emp: DirectoryEmployee) {
+  switch (emp.onboardingStatus) {
+    case 'SUBMITTED':
+      return <Badge tone="amber">Awaiting review</Badge>;
+    case 'APPROVED':
+      return emp.termsAcceptedAt ? <Badge tone="green">Complete</Badge> : <Badge tone="blue">Terms pending</Badge>;
+    case 'REJECTED':
+      return <Badge tone="red">Returned</Badge>;
+    default:
+      return <Badge tone="slate">Not submitted</Badge>;
+  }
 }
 
 interface ListResult {
@@ -246,12 +262,18 @@ export default function PeoplePage() {
           <Empty>No employees match your filters.</Empty>
         ) : (
           <>
-            <Table headers={['Employee', 'Title', 'Department', 'Location', 'Status']}>
+            <Table
+              headers={
+                can('employee.write')
+                  ? ['Employee', 'Title', 'Department', 'Location', 'Status', 'Onboarding']
+                  : ['Employee', 'Title', 'Department', 'Location', 'Status']
+              }
+            >
               {data.items.map((emp) => (
                 <tr key={emp.id} className="hover:bg-slate-50">
                   <td className="px-3 py-2">
                     <Link href={`/people/${emp.id}`} className="font-medium text-brand-600 hover:underline">
-                      {emp.preferredName || emp.firstName} {emp.lastName}
+                      {emp.firstName} {emp.lastName}
                     </Link>
                     <div className="text-xs text-slate-400">
                       {emp.employeeNo} · {emp.workEmail}
@@ -263,6 +285,7 @@ export default function PeoplePage() {
                   <td className="px-3 py-2">
                     <Badge tone={statusTone(emp.status)}>{emp.status}</Badge>
                   </td>
+                  {can('employee.write') && <td className="px-3 py-2">{onboardingBadge(emp)}</td>}
                 </tr>
               ))}
             </Table>
