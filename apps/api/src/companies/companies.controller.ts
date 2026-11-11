@@ -7,6 +7,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   Res,
   UploadedFile,
   UseInterceptors,
@@ -19,6 +20,7 @@ import {
   inviteMemberSchema,
   linkMemberEmployeeSchema,
   planUpdateSchema,
+  platformUsersQuerySchema,
   updateMemberRoleSchema,
   type BillingPlanValue,
   type CompanyRole,
@@ -110,6 +112,20 @@ export class CompaniesController {
   @Get('platform/companies')
   platformCompanies() {
     return this.companies.platformListCompanies();
+  }
+
+  @RequirePlatformAdmin()
+  @Get('platform/overview')
+  platformOverview() {
+    return this.companies.platformOverview();
+  }
+
+  @RequirePlatformAdmin()
+  @Get('platform/users')
+  platformUsers(
+    @Query(new ZodPipe(platformUsersQuerySchema)) query: { q?: string; page: number; pageSize: number },
+  ) {
+    return this.companies.platformListUsers(query);
   }
 
   @RequirePlatformAdmin()

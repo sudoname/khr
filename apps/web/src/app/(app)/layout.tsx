@@ -178,7 +178,7 @@ function Shell({ children }: { children: React.ReactNode }) {
                 Platform
               </div>
               <Link href="/platform" className={linkClass('/platform')}>
-                Companies & plans
+                Dashboard
               </Link>
             </>
           )}

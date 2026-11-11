@@ -643,6 +643,43 @@ describe('P2 modules e2e', () => {
     expect(row.plan).toBe('GROWTH');
   });
 
+  it('platform dashboard: admins see cross-tenant users and overview counts', async () => {
+    await request(server()).get('/platform/overview').set('Cookie', adminCookie).expect(403);
+    await request(server()).get('/platform/users').set('Cookie', adminCookie).expect(403);
+
+    await prisma.user.update({ where: { email: outsiderEmail }, data: { isPlatformAdmin: true } });
+    const platformCookie = await login(outsiderEmail);
+
+    const overview = await request(server()).get('/platform/overview').set('Cookie', platformCookie).expect(200);
+    expect(overview.body.companies).toBeGreaterThanOrEqual(2);
+    expect(overview.body.users).toBeGreaterThanOrEqual(3);
+    expect(overview.body.memberships).toBeGreaterThanOrEqual(3);
+
+    const workerEmail = `p2.worker.${STAMP}@example.test`;
+    const search = await request(server())
+      .get('/platform/users')
+      .query({ q: workerEmail })
+      .set('Cookie', platformCookie)
+      .expect(200);
+    expect(search.body.total).toBe(1);
+    const row = search.body.items[0];
+    expect(row.email).toBe(workerEmail);
+    expect(row.emailVerified).toBe(true);
+    expect(row.lastSignInAt).not.toBeNull();
+    expect(row.memberships).toHaveLength(1);
+    expect(row.memberships[0].role).toBe('EMPLOYEE');
+    expect(row.memberships[0].employeeStatus).toBe('ACTIVE');
+    expect(row.memberships[0].companyName).toContain('P2 E2E');
+
+    const paged = await request(server())
+      .get('/platform/users')
+      .query({ page: 1, pageSize: 1 })
+      .set('Cookie', platformCookie)
+      .expect(200);
+    expect(paged.body.items).toHaveLength(1);
+    expect(paged.body.total).toBeGreaterThan(1);
+  });
+
   // ───────────────────────── audit trail ─────────────────────────
 
   it('audit: the P2 actions left tenant-scoped audit rows', async () => {

@@ -419,6 +419,91 @@ export class CompaniesService {
     }));
   }
 
+  async platformOverview() {
+    const [companies, users, memberships] = await Promise.all([
+      this.prisma.company.count({ where: { deletedAt: null } }),
+      this.prisma.user.count(),
+      this.prisma.platform().membership.count(),
+    ]);
+    await this.audit.log('platform.overview_viewed', { companyId: null });
+    return { companies, users, memberships };
+  }
+
+  async platformListUsers(query: { q?: string; page: number; pageSize: number }) {
+    const where = query.q
+      ? {
+          OR: [
+            { email: { contains: query.q, mode: 'insensitive' as const } },
+            { firstName: { contains: query.q, mode: 'insensitive' as const } },
+            { lastName: { contains: query.q, mode: 'insensitive' as const } },
+          ],
+        }
+      : {};
+    const db = this.prisma.platform();
+    const [users, total] = await Promise.all([
+      db.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.pageSize,
+        take: query.pageSize,
+        select: {
+          id: true,
+          email: true,
+          firstName: true,
+          lastName: true,
+          emailVerifiedAt: true,
+          mfaEnabled: true,
+          isPlatformAdmin: true,
+          createdAt: true,
+          memberships: {
+            orderBy: { createdAt: 'asc' },
+            select: {
+              id: true,
+              role: true,
+              company: { select: { id: true, name: true, deletedAt: true } },
+              employee: { select: { id: true, status: true } },
+            },
+          },
+        },
+      }),
+      db.user.count({ where }),
+    ]);
+    const ids = users.map((u) => u.id);
+    const sessions = ids.length
+      ? await db.session.groupBy({
+          by: ['userId'],
+          where: { userId: { in: ids } },
+          _max: { createdAt: true },
+        })
+      : [];
+    const lastSignIn = new Map(sessions.map((s) => [s.userId, s._max.createdAt]));
+    await this.audit.log('platform.users_listed', { companyId: null });
+    return {
+      items: users.map((u) => ({
+        id: u.id,
+        email: u.email,
+        firstName: u.firstName,
+        lastName: u.lastName,
+        emailVerified: !!u.emailVerifiedAt,
+        mfaEnabled: u.mfaEnabled,
+        isPlatformAdmin: u.isPlatformAdmin,
+        createdAt: u.createdAt,
+        lastSignInAt: lastSignIn.get(u.id) ?? null,
+        memberships: u.memberships.map((m) => ({
+          membershipId: m.id,
+          companyId: m.company.id,
+          companyName: m.company.name,
+          companyDeleted: !!m.company.deletedAt,
+          role: m.role,
+          employeeStatus: m.employee?.status ?? null,
+        })),
+      })),
+      total,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
+  }
+
   async platformSetPlan(companyId: string, plan: BillingPlanValue) {
     const company = await this.prisma.company.findUnique({ where: { id: companyId } });
     if (!company || company.deletedAt) throw new NotFoundException('Company not found');
