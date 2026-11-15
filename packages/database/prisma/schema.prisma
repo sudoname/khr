@@ -255,6 +255,27 @@ enum Gender {
   FEMALE
 }
 
+enum ShirtSize {
+  XS
+  S
+  M
+  L
+  XL
+  XXL
+  XXXL
+}
+
+/// Highest level of education completed (Nigerian system, up to doctorate).
+enum EducationLevel {
+  PRIMARY_SCHOOL
+  JUNIOR_SECONDARY
+  SENIOR_SECONDARY
+  DIPLOMA
+  BACHELORS
+  MASTERS
+  DOCTORATE
+}
+
 /// Self-service profile setup lifecycle: employee submits → admin reviews → employee accepts terms.
 enum OnboardingStatus {
   NOT_SUBMITTED
@@ -282,6 +303,12 @@ model Employee {
   dateOfBirth     DateTime?        @db.Date
   gender          Gender?
   photoUrl        String?
+
+  // Personal details collected during onboarding (uniforms/PPE sizing, HR records).
+  shirtSize      ShirtSize?
+  /// Free text so EU/UK/US conventions all fit, e.g. "43" or "9.5 US".
+  shoeSize       String?
+  educationLevel EducationLevel?
 
   // Banking / identity details collected during onboarding.
   // Field-level restricted like salary: visible only to the employee

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
-import { Alert, Button, Card, Empty, Field, Input, Modal, Spinner, Table } from '@/components/ui';
+import { Alert, Badge, Button, Card, Empty, Field, Input, Modal, Spinner, Table } from '@/components/ui';
 
 interface PendingRow {
   id: string;
@@ -29,9 +29,41 @@ interface PendingRow {
   bvn: string | null;
 }
 
+interface OverviewRow {
+  id: string;
+  employeeNo: string;
+  firstName: string;
+  lastName: string;
+  workEmail: string;
+  jobTitle: string;
+  department: { name: string } | null;
+  onboardingStatus: 'NOT_SUBMITTED' | 'SUBMITTED' | 'APPROVED' | 'REJECTED';
+  onboardingSubmittedAt: string | null;
+  onboardingReviewedAt: string | null;
+  onboardingNote: string | null;
+  termsAcceptedAt: string | null;
+  reviewedBy: string | null;
+}
+
+function overviewBadge(row: OverviewRow) {
+  switch (row.onboardingStatus) {
+    case 'SUBMITTED':
+      return <Badge tone="amber">Awaiting review</Badge>;
+    case 'APPROVED':
+      return row.termsAcceptedAt ? <Badge tone="green">Complete</Badge> : <Badge tone="blue">Terms pending</Badge>;
+    case 'REJECTED':
+      return <Badge tone="red">Returned</Badge>;
+    default:
+      return <Badge tone="slate">Not submitted</Badge>;
+  }
+}
+
+const dt = (iso: string | null) => (iso ? new Date(iso).toLocaleDateString() : '—');
+
 export default function OnboardingApprovalsPage() {
   const { can } = useSession();
   const [rows, setRows] = useState<PendingRow[] | null>(null);
+  const [overview, setOverview] = useState<OverviewRow[] | null>(null);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [selected, setSelected] = useState<PendingRow | null>(null);
@@ -43,6 +75,10 @@ export default function OnboardingApprovalsPage() {
       .get<PendingRow[]>('/onboarding/pending')
       .then(setRows)
       .catch((err) => setError(err instanceof Error ? err.message : 'Failed to load submissions'));
+    api
+      .get<OverviewRow[]>('/onboarding/overview')
+      .then(setOverview)
+      .catch(() => setOverview([]));
   }, []);
 
   useEffect(() => {
@@ -101,6 +137,44 @@ export default function OnboardingApprovalsPage() {
                     Review
                   </Button>
                 </td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </Card>
+
+      <Card title="All profiles">
+        {!overview ? (
+          <Spinner />
+        ) : overview.length === 0 ? (
+          <Empty>No employees found.</Empty>
+        ) : (
+          <Table headers={['Employee', 'Status', 'Submitted', 'Reviewed', 'Terms accepted', 'Note']}>
+            {overview.map((r) => (
+              <tr key={r.id}>
+                <td className="px-3 py-2">
+                  <div className="font-medium">
+                    {r.firstName} {r.lastName}
+                  </div>
+                  <div className="text-xs text-slate-400">
+                    {r.employeeNo} · {r.jobTitle}
+                    {r.department ? ` · ${r.department.name}` : ''}
+                  </div>
+                </td>
+                <td className="px-3 py-2">{overviewBadge(r)}</td>
+                <td className="px-3 py-2">{dt(r.onboardingSubmittedAt)}</td>
+                <td className="px-3 py-2">
+                  {r.onboardingReviewedAt ? (
+                    <>
+                      {dt(r.onboardingReviewedAt)}
+                      {r.reviewedBy && <div className="text-xs text-slate-400">by {r.reviewedBy}</div>}
+                    </>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td className="px-3 py-2">{dt(r.termsAcceptedAt)}</td>
+                <td className="px-3 py-2 text-xs text-slate-500">{r.onboardingNote ?? '—'}</td>
               </tr>
             ))}
           </Table>

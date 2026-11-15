@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { GENDERS, NIGERIAN_BANKS, NIGERIAN_STATES } from '@peopleflow/types';
+import {
+  EDUCATION_LEVELS,
+  EDUCATION_LEVEL_LABELS,
+  GENDERS,
+  NIGERIAN_BANKS,
+  NIGERIAN_STATES,
+  SHIRT_SIZES,
+  type EducationLevel,
+  type ShirtSize,
+} from '@peopleflow/types';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Alert, Badge, Button, Card, Field, Input, Select, Spinner, statusTone } from '@/components/ui';
@@ -28,6 +37,9 @@ interface OnboardingMe {
     city: string | null;
     state: string | null;
     country: string;
+    shirtSize: ShirtSize | null;
+    shoeSize: string | null;
+    educationLevel: EducationLevel | null;
     bankName: string | null;
     bankAccountNumber: string | null;
     bvn: string | null;
@@ -46,6 +58,9 @@ const EMPTY_FORM = {
   city: '',
   state: '',
   country: 'NG',
+  shirtSize: '' as '' | ShirtSize,
+  shoeSize: '',
+  educationLevel: '' as '' | EducationLevel,
   bankName: '',
   bankAccountNumber: '',
   bvn: '',
@@ -76,6 +91,9 @@ export default function OnboardingPage() {
       city: p.city ?? '',
       state: p.state ?? '',
       country: p.country || 'NG',
+      shirtSize: p.shirtSize ?? '',
+      shoeSize: p.shoeSize ?? '',
+      educationLevel: p.educationLevel ?? '',
       bankName: p.bankName ?? '',
       bankAccountNumber: p.bankAccountNumber ?? '',
       bvn: p.bvn ?? '',
@@ -114,6 +132,9 @@ export default function OnboardingPage() {
         city: form.city,
         state: form.state,
         country: form.country,
+        shirtSize: form.shirtSize,
+        shoeSize: form.shoeSize,
+        educationLevel: form.educationLevel,
         bankName: form.bankName,
         bankAccountNumber: form.bankAccountNumber,
         bvn: form.bvn,
@@ -233,6 +254,35 @@ export default function OnboardingPage() {
                 </Field>
                 <Field label="Country (ISO-2)">
                   <Input value={form.country} onChange={set('country')} required maxLength={2} placeholder="NG" />
+                </Field>
+              </div>
+            </div>
+
+            <div>
+              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Personal details</h3>
+              <div className="grid gap-3 md:grid-cols-3">
+                <Field label="Shirt size (optional)">
+                  <Select value={form.shirtSize} onChange={set('shirtSize')}>
+                    <option value="">Select…</option>
+                    {SHIRT_SIZES.map((s) => (
+                      <option key={s} value={s}>
+                        {s}
+                      </option>
+                    ))}
+                  </Select>
+                </Field>
+                <Field label="Shoe size (optional)">
+                  <Input value={form.shoeSize} onChange={set('shoeSize')} maxLength={10} placeholder="e.g. 43 or 9.5" />
+                </Field>
+                <Field label="Highest level of education (optional)">
+                  <Select value={form.educationLevel} onChange={set('educationLevel')}>
+                    <option value="">Select…</option>
+                    {EDUCATION_LEVELS.map((lvl) => (
+                      <option key={lvl} value={lvl}>
+                        {EDUCATION_LEVEL_LABELS[lvl]}
+                      </option>
+                    ))}
+                  </Select>
                 </Field>
               </div>
             </div>

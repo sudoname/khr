@@ -70,6 +70,9 @@ export class OnboardingService {
         city: employee.city,
         state: employee.state,
         country: employee.country,
+        shirtSize: employee.shirtSize,
+        shoeSize: employee.shoeSize,
+        educationLevel: employee.educationLevel,
         bankName: employee.bankName,
         bankAccountNumber: employee.bankAccountNumber,
         bvn: employee.bvn,
@@ -100,6 +103,9 @@ export class OnboardingService {
         city: opt(input.city) ?? null,
         state: input.state,
         country: input.country,
+        shirtSize: input.shirtSize || null,
+        shoeSize: opt(input.shoeSize) ?? null,
+        educationLevel: input.educationLevel || null,
         bankName: input.bankName,
         bankAccountNumber: input.bankAccountNumber,
         bvn: opt(input.bvn) ?? null,
@@ -176,6 +182,43 @@ export class OnboardingService {
       bankName: canSeeBankDetails ? e.bankName : null,
       bankAccountNumber: canSeeBankDetails ? e.bankAccountNumber : null,
       bvn: canSeeBankDetails ? e.bvn : null,
+    }));
+  }
+
+  /** Every employee's onboarding lifecycle, including who reviewed it. */
+  async overview() {
+    const rows = await this.db.employee.findMany({
+      where: { deletedAt: null },
+      orderBy: [{ lastName: 'asc' }, { firstName: 'asc' }],
+      select: {
+        id: true,
+        employeeNo: true,
+        firstName: true,
+        lastName: true,
+        workEmail: true,
+        jobTitle: true,
+        department: { select: { name: true } },
+        onboardingStatus: true,
+        onboardingSubmittedAt: true,
+        onboardingReviewedAt: true,
+        onboardingReviewedById: true,
+        onboardingNote: true,
+        termsAcceptedAt: true,
+      },
+    });
+    const reviewerIds = [...new Set(rows.map((r) => r.onboardingReviewedById).filter((v): v is string => v !== null))];
+    const reviewers = reviewerIds.length
+      ? await this.prisma.user.findMany({
+          where: { id: { in: reviewerIds } },
+          select: { id: true, email: true, firstName: true, lastName: true },
+        })
+      : [];
+    const reviewerName = new Map(
+      reviewers.map((u) => [u.id, [u.firstName, u.lastName].filter(Boolean).join(' ') || u.email]),
+    );
+    return rows.map(({ onboardingReviewedById, ...r }) => ({
+      ...r,
+      reviewedBy: onboardingReviewedById ? (reviewerName.get(onboardingReviewedById) ?? null) : null,
     }));
   }
 

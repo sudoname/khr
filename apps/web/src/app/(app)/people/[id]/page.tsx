@@ -3,6 +3,13 @@
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useParams } from 'next/navigation';
+import {
+  EDUCATION_LEVELS,
+  EDUCATION_LEVEL_LABELS,
+  SHIRT_SIZES,
+  type EducationLevel,
+  type ShirtSize,
+} from '@peopleflow/types';
 import { api } from '@/lib/api';
 import { useSession } from '@/lib/session';
 import { Alert, Badge, Button, Card, Empty, Field, Input, Modal, Select, Spinner, Table, statusTone } from '@/components/ui';
@@ -30,6 +37,9 @@ interface EmployeeDetail {
   state?: string | null;
   country?: string | null;
   dateOfBirth?: string | null;
+  shirtSize?: ShirtSize | null;
+  shoeSize?: string | null;
+  educationLevel?: EducationLevel | null;
   employmentType?: string;
   livesOnsite?: boolean;
   hireDate?: string;
@@ -206,6 +216,9 @@ export default function EmployeeProfilePage() {
         addressLine1: emp.addressLine1 ?? '',
         city: emp.city ?? '',
         state: emp.state ?? '',
+        shirtSize: emp.shirtSize ?? '',
+        shoeSize: emp.shoeSize ?? '',
+        educationLevel: emp.educationLevel ?? '',
         // Only editable when the viewer can actually see the stored values —
         // otherwise saving would blindly clear them.
         ...(can('compensation.read')
@@ -427,6 +440,12 @@ export default function EmployeeProfilePage() {
               <dd>{[emp.addressLine1, emp.city, emp.state].filter(Boolean).join(', ') || '—'}</dd>
               <dt className="text-slate-500">Date of birth</dt>
               <dd>{d(emp.dateOfBirth)}</dd>
+              <dt className="text-slate-500">Shirt size</dt>
+              <dd>{emp.shirtSize ?? '—'}</dd>
+              <dt className="text-slate-500">Shoe size</dt>
+              <dd>{emp.shoeSize ?? '—'}</dd>
+              <dt className="text-slate-500">Highest education</dt>
+              <dd>{emp.educationLevel ? EDUCATION_LEVEL_LABELS[emp.educationLevel] : '—'}</dd>
             </dl>
             {(can('compensation.read') || emp.bvn || emp.bankName || emp.bankAccountNumber) && (
               <div className="mt-3 border-t border-slate-100 pt-3">
@@ -696,6 +715,31 @@ export default function EmployeeProfilePage() {
                 <Input value={form.state ?? ''} onChange={setF('state')} />
               </Field>
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label="Shirt size">
+                <Select value={form.shirtSize ?? ''} onChange={setF('shirtSize')}>
+                  <option value="">Not set</option>
+                  {SHIRT_SIZES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </Select>
+              </Field>
+              <Field label="Shoe size">
+                <Input value={form.shoeSize ?? ''} onChange={setF('shoeSize')} maxLength={10} placeholder="e.g. 43 or 9.5" />
+              </Field>
+            </div>
+            <Field label="Highest level of education">
+              <Select value={form.educationLevel ?? ''} onChange={setF('educationLevel')}>
+                <option value="">Not set</option>
+                {EDUCATION_LEVELS.map((lvl) => (
+                  <option key={lvl} value={lvl}>
+                    {EDUCATION_LEVEL_LABELS[lvl]}
+                  </option>
+                ))}
+              </Select>
+            </Field>
             {can('compensation.read') && (
               <>
                 <div className="border-t border-slate-100 pt-3 text-xs font-medium text-slate-500">

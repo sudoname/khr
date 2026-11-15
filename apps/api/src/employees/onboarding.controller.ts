@@ -40,6 +40,12 @@ export class OnboardingController {
   }
 
   @RequirePermission('employee.write')
+  @Get('overview')
+  overview() {
+    return this.onboarding.overview();
+  }
+
+  @RequirePermission('employee.write')
   @Post(':employeeId/review')
   review(
     @Param('employeeId') employeeId: string,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { EDUCATION_LEVELS, SHIRT_SIZES } from './onboarding';
 
 export const EMPLOYMENT_STATUSES = ['ACTIVE', 'ON_LEAVE', 'SUSPENDED', 'TERMINATED'] as const;
 export const EMPLOYMENT_TYPES = [
@@ -28,6 +29,9 @@ export const employeeCreateSchema = z.object({
   state: z.string().trim().max(80).optional().or(z.literal('')),
   country: z.string().trim().max(2).optional().or(z.literal('')),
   dateOfBirth: isoDate.optional().or(z.literal('')),
+  shirtSize: z.enum(SHIRT_SIZES).optional().or(z.literal('')),
+  shoeSize: z.string().trim().max(10).optional().or(z.literal('')),
+  educationLevel: z.enum(EDUCATION_LEVELS).optional().or(z.literal('')),
   // Banking/identity details (field-level restricted server-side, like salary).
   bvn: z
     .string()

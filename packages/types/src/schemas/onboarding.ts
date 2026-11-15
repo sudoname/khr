@@ -5,6 +5,31 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD');
 export const GENDERS = ['MALE', 'FEMALE'] as const;
 export type Gender = (typeof GENDERS)[number];
 
+export const SHIRT_SIZES = ['XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL'] as const;
+export type ShirtSize = (typeof SHIRT_SIZES)[number];
+
+/** Highest level of education completed (Nigerian system). */
+export const EDUCATION_LEVELS = [
+  'PRIMARY_SCHOOL',
+  'JUNIOR_SECONDARY',
+  'SENIOR_SECONDARY',
+  'DIPLOMA',
+  'BACHELORS',
+  'MASTERS',
+  'DOCTORATE',
+] as const;
+export type EducationLevel = (typeof EDUCATION_LEVELS)[number];
+
+export const EDUCATION_LEVEL_LABELS: Record<EducationLevel, string> = {
+  PRIMARY_SCHOOL: 'Primary school',
+  JUNIOR_SECONDARY: 'Junior secondary school',
+  SENIOR_SECONDARY: 'Senior secondary school',
+  DIPLOMA: 'Diploma / OND / NCE',
+  BACHELORS: "Bachelor's degree / HND",
+  MASTERS: "Master's degree",
+  DOCTORATE: 'Doctorate (PhD)',
+};
+
 /** The 36 Nigerian states + FCT, for the onboarding address form. */
 export const NIGERIAN_STATES = [
   'Abia',
@@ -100,6 +125,9 @@ export const onboardingSubmitSchema = z.object({
   city: z.string().trim().max(80).optional().or(z.literal('')),
   state: z.string().trim().min(2).max(80),
   country: z.string().trim().length(2).default('NG'),
+  shirtSize: z.enum(SHIRT_SIZES).optional().or(z.literal('')),
+  shoeSize: z.string().trim().max(10).optional().or(z.literal('')),
+  educationLevel: z.enum(EDUCATION_LEVELS).optional().or(z.literal('')),
   bankName: z.string().trim().min(2, 'Select or enter your bank').max(120),
   bankAccountNumber: z.string().trim().regex(/^\d{10}$/, 'NUBAN account numbers are 10 digits'),
   bvn: z
